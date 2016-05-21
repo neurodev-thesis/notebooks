@@ -1,0 +1,201 @@
+{
+  "metadata" : {
+    "name" : "K-Means (DDD)",
+    "user_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "auto_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "language_info" : {
+      "name" : "scala",
+      "file_extension" : "scala",
+      "codemirror_mode" : "text/x-scala"
+    },
+    "trusted" : true,
+    "customLocalRepo" : null,
+    "customRepos" : null,
+    "customDeps" : null,
+    "customImports" : null,
+    "customArgs" : null,
+    "customSparkConf" : null
+  },
+  "cells" : [ {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "#Clustering: K-Means\n\nClustering applied to the metadata of the [DDD cohort](https://decipher.sanger.ac.uk/ddd#overview).\nIt is used after features alignment of the elements to cluster (see the related notebook)."
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the parameters of the process:\n* the path to our HDFS\n* the common path to the input files (similarity matrix S and set of elements U)\n* the path to the file containing the patients' phenotypes\n* the output path to print out results to HDFS\n\n* the number of clusters to create\n* the number of iterations before considering the model has converged\n* the number of runs of the whole algorithm to compare results based on different stochastic initializations\n\n* the minimal number of patients that must be present in a cluster ; if a cluster is composed of less, the outlier(s) will be excluded and the process started again. This condition can considerably increase the computation time.\n* the minimal number of occurrences of a phenotype for it to be displayed in the output"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val hdfs_path = \"hdfs:/user/ndewit/\"\nval input_path = hdfs_path + \"aligned_DDD_metadata\"\nval phenotypes_path = hdfs_path + \"datasets/ddd/ddd3_ega-phenotypes.txt\"\nval output_path = hdfs_path + \"DDD_Kmeans_results.txt\"\n\nval numClusters = 5\nval numIterations = 20\nval numRuns = 1\n\nval outliers_limit = 0\nval nb_min_phenotypes = 0",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "hdfs_path: String = hdfs:/user/ndewit/\ninput_path: String = hdfs:/user/ndewit/aligned_DDD_metadata\nphenotypes_path: String = hdfs:/user/ndewit/datasets/ddd/ddd3_ega-phenotypes.txt\noutput_path: String = hdfs:/user/ndewit/DDD_Kmeans_results.txt\nnumClusters: Int = 5\nnumIterations: Int = 20\nnumRuns: Int = 1\noutliers_limit: Int = 0\nnb_min_phenotypes: Int = 0\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "0"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 1
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Input retrieval"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.spark.mllib.linalg.Vectors\nvar samples = sc.objectFile[(String, org.apache.spark.mllib.linalg.Vector)](input_path)\nvar nb_samples = samples.count",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.spark.mllib.linalg.Vectors\nsamples: org.apache.spark.rdd.RDD[(String, org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[1] at objectFile at <console>:52\nnb_samples: Long = 3\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "3"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 2
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering process"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}\n\nvar check_outliers = Array[String]()\nvar nb_outliers = check_outliers.size\nvar predicted_clusters = sc.parallelize(Array[(String, Int)]())\n\ndo {\n\n  val values_only = samples.values\n\n  val kmeans_model = KMeans.train(values_only, numClusters, numIterations, numRuns)\n\n  predicted_clusters = samples.mapValues{kmeans_model.predict(_)}.persist\n\n  check_outliers = predicted_clusters.\n  map{ case (patient, cluster) => (cluster, patient) }.\n  aggregateByKey(scala.collection.mutable.HashSet.empty[String])(_+_, _++_).values.\n  flatMap{\n    v =>\n    if (v.size > outliers_limit) { List(\"\") }\n    else { v.toList }\n  }.collect.filter(v => v != \"\")\n  nb_outliers = check_outliers.size\n\n  samples = samples.filter(s => !check_outliers.contains(s._1))\n  nb_samples = samples.count\n\n  println(nb_outliers + \" outliers removed \" +\n          \"(\" + check_outliers.mkString(\", \") + \") \" +\n          \": \" + nb_samples + \" samples remaining.\")\n\n} while (nb_outliers > 0 && nb_samples > numClusters)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "0 outliers removed () : 3 samples remaining.\nimport org.apache.spark.mllib.clustering.{KMeans, KMeansModel}\ncheck_outliers: Array[String] = Array()\nnb_outliers: Int = 0\npredicted_clusters: org.apache.spark.rdd.RDD[(String, Int)] = MapPartitionsRDD[33] at mapValues at <console>:78\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 3
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering evaluation and output of results"
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We output our clustering results to a single file on HDFS. The file does not get written out until the *close()* method is reached."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.hadoop.fs._\nimport java.io.BufferedOutputStream\n\nval fs = FileSystem.get(sc.hadoopConfiguration)\n\nclass TextFile(file_path : String) {\n  val physical_file = fs.create(new Path(file_path))\n  val stream = new BufferedOutputStream(physical_file)\n\n  def write(text : String) : Unit = {\n    stream.write(text.getBytes(\"UTF-8\"))\n  }\n\n  def close() : Unit = {\n    stream.close()\n  }\n}\n\nval t = new TextFile(output_path)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.hadoop.fs._\nimport java.io.BufferedOutputStream\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_-376859091_11, ugi=ndewit (auth:SIMPLE)]]\ndefined class TextFile\nt: TextFile = $iwC$$iwC$TextFile@3339136d\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "$line18.$read$$iwC$$iwC$TextFile@3339136d"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 4
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val pheno_data = sc.textFile(phenotypes_path)\nval phenotypes = pheno_data.map(_.split('\\t')).map{\n  x =>\n  val terms = x(4).split(\";\")\n  x(0) -> terms\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "pheno_data: org.apache.spark.rdd.RDD[String] = MapPartitionsRDD[40] at textFile at <console>:57\nphenotypes: org.apache.spark.rdd.RDD[(String, Array[String])] = MapPartitionsRDD[42] at map at <console>:58\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[42] at map at &lt;console&gt;:58"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 5
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "//Listing all patients appearing in each cluster\n\nval patients_by_cluster = predicted_clusters.\nmap{case (patient, cluster) => (cluster, patient)}.reduceByKey(_ + \", \" + _)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "patients_by_cluster: org.apache.spark.rdd.RDD[(Int, String)] = ShuffledRDD[44] at reduceByKey at <console>:58\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "ShuffledRDD[44] at reduceByKey at &lt;console&gt;:58"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 6
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val phenos_by_cluster = predicted_clusters.join(phenotypes).values\n\n// We count the number of occurrences by phenotype, by cluster\nval counts_by_pheno = phenos_by_cluster.map{\n  case(cluster, pheno_list) => pheno_list.map(e => ((cluster, e), 1))\n}.flatMap{a => a.toList}.reduceByKey(_ + _).persist\n\n// We count the number of occurrences by phenotype over all clusters\nval counts_overall = counts_by_pheno.map{\n  case ((cluster, hpo), cnt) =>\n  (hpo, cnt)\n}.reduceByKey(_ + _)\n\n// We use the previous RDD to add the corresponding percentage of phenotypes to each occurrence count\nval counts_by_cluster_with_percentages = counts_by_pheno.map{\n  case ((cluster, hpo), cnt) =>\n  (hpo, (cluster, cnt))\n}.join(counts_overall).map{\n  case (hpo, ((cluster, cnt), tot)) =>\n  (cluster, (hpo, cnt, cnt*100.0/tot))\n}.groupByKey\n\nval nb_pheno_by_patient_by_cluster = predicted_clusters.join(phenotypes).map{\n  case (patient, (cluster, hpo_list)) =>\n  (cluster, (patient, hpo_list.size.toDouble, hpo_list))\n}.aggregateByKey(scala.collection.mutable.HashSet.empty[(String, Double, Array[String])])(_+_, _++_).\nmapValues(_.toArray)\n\nval avg_pheno_by_cluster = nb_pheno_by_patient_by_cluster.mapValues{\n  list =>\n  val sz_list = list.length\n  list.map(_._2).sum / sz_list\n}\n\ncounts_by_cluster_with_percentages.\njoin(patients_by_cluster).\njoin(nb_pheno_by_patient_by_cluster).\njoin(avg_pheno_by_cluster).\ncollect.foreach{\n  case (cluster, (((hpo_array, patients_list), patients_and_hpos), avg_nb_hpos)) =>\n  var txt = \"\\n\\n\\n--- Cluster \" + cluster.toString + \" ---\"\n  //println(txt)\n  t.write(txt + \"\\n\")\n\n  val sz = patients_list.split(\",\").size\n  val form1 = if (sz > 1) { \"s\" } else { \"\" }\n  val form2 = if (sz < 20) { \" : \" + patients_list.toString } else { \".\" }\n  txt = \"Total of \" + sz.toString + \" patient\" + form1 + form2\n  //println(txt)\n  t.write(txt + \"\\n\")\n\n  txt = \"Average nb of HPOs per patient: \" + avg_nb_hpos.toString\n  //println(txt)\n  t.write(txt + \"\\n\")\n\n  patients_and_hpos.foreach{\n    case (patient, nb_hpo, hpos) =>\n    txt = \"Patient \" + patient + \" has \" + nb_hpo.toInt.toString + \" HPO terms: \" + hpos.mkString(\", \")\n    //println(txt)\n    t.write(txt + \"\\n\")\n  }\n\n  hpo_array.toArray.sortWith(_._2 > _._2).foreach{\n    case (hpo, cnt, perc) =>\n    val form3 = if (cnt > 1) { \"people\" } else { \"person\" }\n    val formatted_res = \"%-40s: %d %s (%.1f%% of the people having this HPO)\".format(hpo, cnt, form3, perc)\n    //println(formatted_res)\n    t.write(formatted_res + \"\\n\")\n  }\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "phenos_by_cluster: org.apache.spark.rdd.RDD[(Int, Array[String])] = MapPartitionsRDD[48] at values at <console>:72\ncounts_by_pheno: org.apache.spark.rdd.RDD[((Int, String), Int)] = ShuffledRDD[51] at reduceByKey at <console>:77\ncounts_overall: org.apache.spark.rdd.RDD[(String, Int)] = ShuffledRDD[53] at reduceByKey at <console>:83\ncounts_by_cluster_with_percentages: org.apache.spark.rdd.RDD[(Int, Iterable[(String, Int, Double)])] = ShuffledRDD[59] at groupByKey at <console>:92\nnb_pheno_by_patient_by_cluster: org.apache.spark.rdd.RDD[(Int, Array[(String, Double, Array[String])])] = MapPartitionsRDD[65] at mapValues at <console>:98\navg_pheno_by_cluster: org.apache.spark.rdd.RDD[(Int, Double)] = MapPartitionsRDD[66] at mapValues at <console>:100\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 7
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "t.close()",
+    "outputs" : [ {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 8
+    } ]
+  } ],
+  "nbformat" : 4
+}

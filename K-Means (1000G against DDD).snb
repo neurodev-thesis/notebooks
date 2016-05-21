@@ -1,0 +1,143 @@
+{
+  "metadata" : {
+    "name" : "K-Means (1000G against DDD)",
+    "user_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "auto_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "language_info" : {
+      "name" : "scala",
+      "file_extension" : "scala",
+      "codemirror_mode" : "text/x-scala"
+    },
+    "trusted" : true,
+    "customLocalRepo" : null,
+    "customRepos" : null,
+    "customDeps" : null,
+    "customImports" : null,
+    "customArgs" : null,
+    "customSparkConf" : null
+  },
+  "cells" : [ {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "#Clustering: K-Means\n\nClustering applied to the [1000 Genomes dataset](http://1000genomes.org/). It is used after features alignment of the elements to cluster (see the related notebook)."
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the parameters of the process:\n* the path to our HDFS\n* the common path to the input files (similarity matrix S and set of elements U)\n* the path to the file containing the patients' phenotypes\n* the output path to print out results to HDFS\n\n* the number of clusters to create\n* the number of iterations before considering the model has converged\n* the number of runs of the whole algorithm to compare results based on different stochastic initializations\n\n* the minimal number of patients that must be present in a cluster ; if a cluster is composed of less, the outlier(s) will be excluded and the process started again. This condition can considerably increase the computation time"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val hdfs_path = \"hdfs:/user/ndewit/\"\nval input_path = hdfs_path + \"aligned_both_variants\"\nval output_path = hdfs_path + \"1000G_vs_DDD_Kmeans_results.txt\"\n\nval numClusters = 5\nval numIterations = 20\nval numRuns = 1\n\nval outliers_limit = 0",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "hdfs_path: String = hdfs:/user/ndewit/\ninput_path: String = hdfs:/user/ndewit/aligned_both_variants\noutput_path: String = hdfs:/user/ndewit/1000G_vs_DDD_Kmeans_results.txt\nnumClusters: Int = 5\nnumIterations: Int = 20\nnumRuns: Int = 1\noutliers_limit: Int = 0\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "0"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 13
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Input retrieval"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.spark.mllib.linalg.Vectors\nvar samples = sc.objectFile[(String, org.apache.spark.mllib.linalg.Vector)](input_path)\nvar nb_samples = samples.count",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.spark.mllib.linalg.Vectors\nsamples: org.apache.spark.rdd.RDD[(String, org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[14] at objectFile at <console>:67\nnb_samples: Long = 4\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "4"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 14
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering process"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}\n\nvar check_outliers = Array[String]()\nvar nb_outliers = check_outliers.size\nvar predicted_clusters = sc.parallelize(Array[(String, Int)]())\n\ndo {\n\n  val values_only = samples.values\n\n  val kmeans_model = KMeans.train(values_only, numClusters, numIterations, numRuns)\n\n  predicted_clusters = samples.mapValues{kmeans_model.predict(_)}.persist\n\n  check_outliers = predicted_clusters.\n  map{ case (patient, cluster) => (cluster, patient) }.\n  aggregateByKey(scala.collection.mutable.HashSet.empty[String])(_+_, _++_).values.\n  flatMap{\n    v =>\n    if (v.size > outliers_limit) { List(\"\") }\n    else { v.toList }\n  }.collect.filter(v => v != \"\")\n  nb_outliers = check_outliers.size\n\n  samples = samples.filter(s => !check_outliers.contains(s._1))\n  nb_samples = samples.count\n\n  println(nb_outliers + \" outliers removed \" +\n          \"(\" + check_outliers.mkString(\", \") + \") \" +\n          \": \" + nb_samples + \" samples remaining.\")\n\n} while (nb_outliers > 0 && nb_samples > numClusters)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "0 outliers removed () : 4 samples remaining.\nimport org.apache.spark.mllib.clustering.{KMeans, KMeansModel}\ncheck_outliers: Array[String] = Array()\nnb_outliers: Int = 0\npredicted_clusters: org.apache.spark.rdd.RDD[(String, Int)] = MapPartitionsRDD[46] at mapValues at <console>:87\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 15
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering evaluation and output of results"
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We output our clustering results to a single file on HDFS. The file does not get written out until the *close()* method is reached."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.hadoop.fs._\nimport java.io.BufferedOutputStream\n\nval fs = FileSystem.get(sc.hadoopConfiguration)\n\nclass TextFile(file_path : String) {\n  val physical_file = fs.create(new Path(file_path))\n  val stream = new BufferedOutputStream(physical_file)\n\n  def write(text : String) : Unit = {\n    stream.write(text.getBytes(\"UTF-8\"))\n  }\n\n  def close() : Unit = {\n    stream.close()\n  }\n}\n\nval t = new TextFile(output_path)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.hadoop.fs._\nimport java.io.BufferedOutputStream\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_-1299784997_11, ugi=ndewit (auth:SIMPLE)]]\ndefined class TextFile\nt: TextFile = $iwC$$iwC$TextFile@53890f9a\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "$line46.$read$$iwC$$iwC$TextFile@53890f9a"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 16
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def RID(to_eval : RDD[((String, (Int, Int)), (String, (Int, Int)))]) : Double = {\n\n  def choose2(n : Int) : Double = {\n    return n * (n - 1) / 2;\n  }\n\n  val denom = choose2(nb_samples.toInt)  //Denominator of RID is (nb_samples choose 2)\n\n  // a : number of pairs in the same cluster in C and in K\n  // b : number of pairs in different clusters in C and in K\n  val a = sc.accumulator(0, \"Acc a : same cluster in both\")\n  val b = sc.accumulator(0, \"Acc b : different cluster in both\")\n\n  to_eval.foreach{\n    case ((id1, classes1), (id2, classes2)) =>\n\n    if (id1 != id2) {\n      if (classes1._1 == classes2._1 && classes1._2 == classes2._2) {\n        a += 1 //Classes match, and they should\n      }\n      else if (classes1._1 != classes2._1 && classes1._2 != classes2._2) {\n        b += 1 //Classes don't match, and they shouldn't\n      }\n    }\n  }\n\n  //We divide these counts by two since each pair was counted in both orders (a,b and b,a)\n  (a.value/2 + b.value/2) / denom\n}\n\nval both = predicted_clusters.map{\ncase (k, predicted) =>\nvar label = 0\nif (k.slice(0,3) == \"DDD\") { label = 1 }\n(k, (label, predicted))\n}\n\nval eval_res = RID(both.cartesian(both))\nval txt = s\"RID = $eval_res\"\nprintln(txt)\nt.write(txt + \"\\n\")\n\npredicted_clusters.map{case(a,b) => (b,a)}.\ngroupByKey.collect.foreach{\n  case (cluster, list_patients) =>\n  println(\"--- Cluster \" + cluster.toString + \" ---\")\n  t.write(\"--- Cluster \" + cluster.toString + \" ---\\n\")  \n  list_patients.foreach{\n    p =>\n    println(p)\n    t.write(p + \"\\n\")  \n  }\n}",
+    "outputs" : [ ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "t.close()",
+    "outputs" : [ ]
+  } ],
+  "nbformat" : 4
+}

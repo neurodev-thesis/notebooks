@@ -23,7 +23,7 @@
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
-    "source" : "We define the parameters of the process:\n* the number of patients to consider\n* the path to the input file"
+    "source" : "We define the parameters of the process:\n* the number of patients to consider\n* the path to the input file\n* the number of clusters to create\n* the number of iterations before considering the model has converged\n* the number of runs of the whole algorithm to compare results based on different stochastic initializations"
   }, {
     "metadata" : {
       "trusted" : true,
@@ -31,7 +31,7 @@
       "collapsed" : false
     },
     "cell_type" : "code",
-    "source" : "val nb_patients = 1000\nval input_path = \"datasets/acute_inflammations/data\"",
+    "source" : "val nb_patients = 1000\nval input_path = \"datasets/acute_inflammations/data\"\nval numClusters = 4\nval numIterations = 20\nval numRuns = 5",
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",
@@ -103,7 +103,7 @@
       "collapsed" : false
     },
     "cell_type" : "code",
-    "source" : "import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}\n\nval numClusters = 4\nval numIterations = 20\nval numRuns = 5\nval kmeans_model = KMeans.train(samples.values, numClusters, numIterations, numRuns)",
+    "source" : "import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}\n\nval kmeans_model = KMeans.train(samples.values, numClusters, numIterations, numRuns)",
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",

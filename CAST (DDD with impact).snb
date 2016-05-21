@@ -1,0 +1,413 @@
+{
+  "metadata" : {
+    "name" : "CAST (DDD with impact)",
+    "user_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "auto_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "language_info" : {
+      "name" : "scala",
+      "file_extension" : "scala",
+      "codemirror_mode" : "text/x-scala"
+    },
+    "trusted" : true,
+    "customLocalRepo" : null,
+    "customRepos" : null,
+    "customDeps" : null,
+    "customImports" : null,
+    "customArgs" : null,
+    "customSparkConf" : null
+  },
+  "cells" : [ {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "#Clustering: CAST\n\nClustering applied to the metadata of the [DDD cohort](https://decipher.sanger.ac.uk/ddd#overview).\n\nThis instance is a bit of a special case compared to the Acute Inflammations and 1000G ones, as we use it after initial alignment of the metadata. In it, we also keep track of another type of metadata not to be used in the clustering itself, thus leading to a special handling of the similarity matrix."
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the parameters of the process:\n* the path to our HDFS\n* the common path to the input files (similarity matrix S and set of elements U)\n* the path to the file containing the patients' phenotypes\n* the output path to print out results to HDFS\n* the affinity threshold to use in the clustering"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val hdfs_path = \"hdfs:/user/ndewit/\"\nval input_path = hdfs_path + \"aligned_DDD_cadd_with_impact\"\nval phenotypes_path = hdfs_path + \"datasets/ddd/ddd3_ega-phenotypes.txt\"\nval output_path = hdfs_path + \"DDD_CAST_CADD_with_impact_results.txt\"\n\nval threshold = 0.8\n\nval nb_partitions = 10",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "hdfs_path: String = hdfs:/user/ndewit/\ninput_path: String = hdfs:/user/ndewit/aligned_DDD_cadd_with_impact\nphenotypes_path: String = hdfs:/user/ndewit/datasets/ddd/ddd3_ega-phenotypes.txt\noutput_path: String = hdfs:/user/ndewit/DDD_CAST_cadd_with_impact_results.txt\nthreshold: Double = 0.8\nnb_partitions: Int = 10\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "10"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 91
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Inputs retrieval\n"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val data = sc.objectFile[(String, org.apache.spark.mllib.linalg.Vector)](input_path)\nval effects = data.mapValues{ x => x.toArray.takeRight(4) }\nvar dataPerPatient = data.mapValues{ x => x.toArray.slice(0,3)}\nvar nb_samples = dataPerPatient.count",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "data: org.apache.spark.rdd.RDD[(String, org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[118] at objectFile at <console>:86\neffects: org.apache.spark.rdd.RDD[(String, Array[Double])] = MapPartitionsRDD[119] at mapValues at <console>:87\ndataPerPatient: org.apache.spark.rdd.RDD[(String, Array[Double])] = MapPartitionsRDD[120] at mapValues at <console>:88\nnb_samples: Long = 3\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "3"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 92
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "class C_Element(id:Int, name: String, features: Array[Double]) extends Serializable {\n  val _id = id\n  val _name : String = name\n  val _features : Array[Double] = features\n\n  def getId() : Int = {\n    val id = _id\n    return id\n  }\n\n  def getFeatures() : Array[Double] = {\n    val features = _features\n    return features\n  }\n\n  def getName() : String = {\n    val name = _name\n    return name\n  }\n\n  override def toString(): String = {\n    val id = _id\n    val name = _name\n    \"Element \" + id + \" (\" + name + \")\"\n  }\n\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "defined class C_Element\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 93
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "var U = dataPerPatient.zipWithIndex.map{x => new C_Element(x._2.toInt, x._1._1, x._1._2) }.persist\n\nval nb_elements = U.count\n\nval all_ids = U.map(_.getId).collect",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "U: org.apache.spark.rdd.RDD[C_Element] = MapPartitionsRDD[122] at map at <console>:94\nnb_elements: Long = 3\nall_ids: Array[Int] = Array(0, 1, 2)\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anoncafd1ce62d16a05429f2dc912649e7b5&quot;,&quot;dataInit&quot;:[{&quot;_1&quot;:0,&quot;_2&quot;:0},{&quot;_1&quot;:1,&quot;_2&quot;:1},{&quot;_1&quot;:2,&quot;_2&quot;:2}],&quot;genId&quot;:&quot;202642111&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/magic/tabs'], \n      function(playground, _magictabs) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _magictabs,\n    \"o\": {}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    <div>\n        <ul class=\"nav nav-tabs\" id=\"ul202642111\"><li>\n              <a href=\"#tab202642111-0\"><i class=\"fa fa-table\"/></a>\n            </li><li>\n              <a href=\"#tab202642111-1\"><i class=\"fa fa-dot-circle-o\"/></a>\n            </li><li>\n              <a href=\"#tab202642111-2\"><i class=\"fa fa-line-chart\"/></a>\n            </li><li>\n              <a href=\"#tab202642111-3\"><i class=\"fa fa-bar-chart\"/></a>\n            </li></ul>\n\n        <div class=\"tab-content\" id=\"tab202642111\"><div class=\"tab-pane\" id=\"tab202642111-0\">\n            <div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anon7594754828fffe5c61bad05a3346ae09&quot;,&quot;dataInit&quot;:[{&quot;_1&quot;:0,&quot;_2&quot;:0},{&quot;_1&quot;:1,&quot;_2&quot;:1},{&quot;_1&quot;:2,&quot;_2&quot;:2}],&quot;genId&quot;:&quot;1991261377&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/magic/tableChart'], \n      function(playground, _magictableChart) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _magictableChart,\n    \"o\": {\"headers\":[\"_1\",\"_2\"],\"nrow\":3,\"shown\":3,\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div>\n            </div><div class=\"tab-pane\" id=\"tab202642111-1\">\n            <div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anon7266a0128d2c70eb1a25aca610d9f6b3&quot;,&quot;dataInit&quot;:[{&quot;_1&quot;:0,&quot;_2&quot;:0},{&quot;_1&quot;:1,&quot;_2&quot;:1},{&quot;_1&quot;:2,&quot;_2&quot;:2}],&quot;genId&quot;:&quot;864067744&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/magic/scatterChart'], \n      function(playground, _magicscatterChart) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _magicscatterChart,\n    \"o\": {\"x\":\"_1\",\"y\":\"_2\",\"nrow\":3,\"shown\":3,\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div>\n            </div><div class=\"tab-pane\" id=\"tab202642111-2\">\n            <div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anon6eca3f30f1d5daf148f4a4ebb6da0f6c&quot;,&quot;dataInit&quot;:[{&quot;_1&quot;:0,&quot;_2&quot;:0},{&quot;_1&quot;:1,&quot;_2&quot;:1},{&quot;_1&quot;:2,&quot;_2&quot;:2}],&quot;genId&quot;:&quot;513159123&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/magic/lineChart'], \n      function(playground, _magiclineChart) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _magiclineChart,\n    \"o\": {\"x\":\"_1\",\"y\":\"_2\",\"nrow\":3,\"shown\":3,\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div>\n            </div><div class=\"tab-pane\" id=\"tab202642111-3\">\n            <div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anonede6a04c10cf542302668ec2efb72476&quot;,&quot;dataInit&quot;:[{&quot;_1&quot;:0,&quot;_2&quot;:0},{&quot;_1&quot;:1,&quot;_2&quot;:1},{&quot;_1&quot;:2,&quot;_2&quot;:2}],&quot;genId&quot;:&quot;2087983412&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/magic/barChart'], \n      function(playground, _magicbarChart) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _magicbarChart,\n    \"o\": {\"x\":\"_1\",\"y\":\"_2\",\"nrow\":3,\"shown\":3,\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div>\n            </div></div>\n      </div></div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 94
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import math.{sqrt, pow, abs}\n\ndef euclidean_distance(e1: Array[Double], e2: Array[Double]) = {\n  sqrt((e1 zip e2).map{ case (v1, v2) => pow(v1 - v2, 2) }.sum)\n}\n\ndef manhattan_distance(e1: Array[Double], e2: Array[Double]) = {\n  (e1 zip e2).map{ case (v1, v2) => abs(v1 - v2) }.sum\n}\n\nval raw_S = U.cartesian(U).map{\n  case (e1, e2) =>\n    if (e1.getId == e2.getId) {\n      (e1.getId) -> (e2.getId, 0.0)\n    }\n    else {\n      (e1.getId) -> (e2.getId, -manhattan_distance(e1.getFeatures, e2.getFeatures).toDouble)\n    }\n}.persist",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import math.{sqrt, pow, abs}\neuclidean_distance: (e1: Array[Double], e2: Array[Double])Double\nmanhattan_distance: (e1: Array[Double], e2: Array[Double])Double\nraw_S: org.apache.spark.rdd.RDD[(Int, (Int, Double))] = MapPartitionsRDD[125] at map at <console>:97\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[125] at map at &lt;console&gt;:97"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 95
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val minKey2 = raw_S.min()(new Ordering[Tuple2[Int, Tuple2[Int, Double]]]() {\n  override def compare(x: (Int, (Int, Double)), y: (Int, (Int, Double))): Int = \n      Ordering[Double].compare(x._2._2, y._2._2)\n})\n\nprintln(\"max:\" + 0 + \" ; min:\" + minKey2)\n\n//2) Prepare scaler to [-1,0]\nval std_scaler = - minKey2._2._2\n\n//3) Mapping to scaled results\nval S = sc.broadcast{\n  raw_S.mapValues{ case (id, x) => (id, x/std_scaler + 1.0) }.coalesce(nb_partitions)\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "max:0 ; min:(0,(2,-5.736039964960632))\nminKey2: (Int, (Int, Double)) = (0,(2,-5.736039964960632))\nstd_scaler: Double = 5.736039964960632\nS: org.apache.spark.broadcast.Broadcast[org.apache.spark.rdd.RDD[(Int, (Int, Double))]] = Broadcast(54)\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "Broadcast(54)"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 96
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering process"
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "Whenever an element is added or removed from a cluster, we update all affinities with regards to the cluster based on that element. The interest of having built the similarity matrix as (ID1, (ID2, value)) instead of ((ID1, ID2), value) is that we can easily select the whole row of values related to the added/removed element, since they always must all be updated at the same time."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def add_affinities(a: scala.collection.mutable.Map[Int, Double], S_row: Map[Int, Double]): Unit = {\n  for (element <- a) {\n    val id : Int = element._1\n    val new_affinity : Double = element._2 + S_row(id)\n    a -= id\n    a += (id -> new_affinity)\n  }\n}\n\ndef remove_affinities(a: scala.collection.mutable.Map[Int, Double], S_row: Map[Int, Double]): Unit = {\n  for (element <- a) {\n    val id : Int = element._1\n    val new_affinity : Double = element._2 - S_row(id)\n    a -= id\n    a += (id -> new_affinity)\n  }\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "add_affinities: (a: scala.collection.mutable.Map[Int,Double], S_row: Map[Int,Double])Unit\nremove_affinities: (a: scala.collection.mutable.Map[Int,Double], S_row: Map[Int,Double])Unit\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 97
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the core of the CAST algorithm.\n* We initialize a set containing all the elements belonging to already closed clusters in the form (Sample ID, Attributed cluster ID)\n* The original algorithm defines the set U as containing all elements ; however, since the comparison between elements is already contained in the similarity matrix, we can simply use the list of all element IDs instead (which lowers the memory pressure). Note that U will be modified during the clustering process, and can thus not be a RDD, since it would otherwise get shipped to executors where changes would occur, but these changes would never go back to the driver. We thus ground U into a non-distributed mutable set.\n* While elements remain in U, we alternate between Add and Remove operations\n* We keep track of the elements contained in the current cluster via the mutable set *C_open*\n* We keep track of the affinities of all elements with regards to the current cluster via the mutable Map *affinities*\n* We find the element that has maximum or minimum affinity wrt the cluster via the *maxBy()* function, linking it to the *affinities* Map.\n\nPrinted reports on the different actions can be uncommented to follow the algorithm's progress."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "//C : Set containing the already closed clusters\nval C = scala.collection.mutable.Set.empty[(Int, Int)] //(Sample ID, Cluster)\nvar cluster_id = 0\n\n// We ground U into a non-RDD mutable Set\nval mut_U = scala.collection.mutable.Set.empty[Int] ++ all_ids\n\n// We do the whole thing while there are still elements in U\nwhile (!mut_U.isEmpty){\n\n  val remaining = mut_U.size\n  //println(s\"t=$threshold: $remaining elements remaining in U...\")\n\n  // Open a new current, open cluster of elements\n  var C_open = scala.collection.mutable.Set.empty[Int]\n\n  // Set all affinities wrt this new cluster to 0\n  var affinities = scala.collection.mutable.Map[Int, Double]() ++ all_ids.map(id => (id, 0.0)).toMap\n\n  var change_occurred : Boolean = false\n\n\n  do {\n\n    change_occurred = false\n\n\n    // ADD PHASE: Add high affinity elements to the current cluster\n\n    //println(\"-- ADD --\")\n\n    var max_element = -1\n    var max_affinity : Double = 0\n\n    // Avoid exceptions due to a max/reduce/maxBy on an empty collection\n    if (!mut_U.isEmpty) {\n\n      max_element = mut_U.maxBy(e => affinities(e))\n      max_affinity = affinities(max_element)\n      //println(s\"Max of U is $max_element with affinity $max_affinity\")\n    }\n\n    // While the last selected element is over the threshold\n    while ((!mut_U.isEmpty) && (max_affinity >= threshold*C_open.size)) {\n\n      //println(\"... and it is over threshold\")\n\n      val to_rem = mut_U.find(x => x == max_element).head\n      C_open += to_rem\n      mut_U -= to_rem\n\n      add_affinities(affinities, S.value.lookup(max_element).toMap[Int,Double])\n\n      // We find the next maximal element\n      if (!mut_U.isEmpty) {\n        max_element = mut_U.maxBy(e => affinities(e))\n        max_affinity = affinities(max_element)\n        //println(s\"New max of U is $max_element with affinity $max_affinity\")\n      }\n\n      change_occurred = true\n    }\n\n\n    //-----------------------------------\n\n\n    // REMOVE PHASE : Remove low affinity elements to the current cluster\n\n    //println(\"-- REMOVE --\")\n\n    var min_element = -1\n    var min_affinity : Double = 0\n\n    if (!C_open.isEmpty) {\n\n      min_element = C_open.minBy(e => affinities(e))\n      min_affinity = affinities(min_element)\n\n      //println(s\"Min of C_open is $min_element with affinity $min_affinity\")\n    }\n\n    while (!C_open.isEmpty && min_affinity < threshold*C_open.size) {\n\n      //println(\"... and it is under threshold\")\n\n      val to_add = C_open.find(x => x == min_element).head\n      C_open -= to_add\n      mut_U += to_add\n\n      remove_affinities(affinities, S.value.lookup(min_element).toMap[Int,Double])\n\n      //Find the next minimal element\n      if (!C_open.isEmpty) {\n        min_element = C_open.minBy(e => affinities(e))\n        min_affinity = affinities(min_element)\n        //println(s\"New min of U is $min_element with affinity $min_affinity\")\n      }\n\n      change_occurred = true\n    }\n\n\n  } while(change_occurred)\n\n  //println(s\"No changes occurred: this cluster (id $cluster_id) is complete.\\n\")\n\n  C_open.foreach{ e => C += ((e, cluster_id)) }\n  cluster_id = cluster_id + 1\n\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "C: scala.collection.mutable.Set[(Int, Int)] = Set((0,0), (1,1), (2,2))\ncluster_id: Int = 3\nmut_U: scala.collection.mutable.Set[Int] = Set()\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 98
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering evaluation and output of results\n\nWe output our clustering results to a single file on HDFS. The file does not get written out until the *close()* method is reached."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.hadoop.fs._\nimport java.io.BufferedOutputStream\n\nval fs = FileSystem.get(sc.hadoopConfiguration)\n\nclass TextFile(file_path : String) {\n  val physical_file = fs.create(new Path(file_path))\n  val stream = new BufferedOutputStream(physical_file)\n\n  def write(text : String) : Unit = {\n    stream.write(text.getBytes(\"UTF-8\"))\n  }\n\n  def close() : Unit = {\n    stream.close()\n  }\n}\n\nval t = new TextFile(output_path)\nvar txt = \"\"",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.hadoop.fs._\nimport java.io.BufferedOutputStream\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_1325737844_9, ugi=ndewit (auth:SIMPLE)]]\ndefined class TextFile\nt: TextFile = $iwC$$iwC$TextFile@3e4c12cb\ntxt: String = \"\"\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 99
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val nb_clusters = sc.parallelize(C.toSeq).groupBy(_._2).count()\ntxt = s\"Total: $nb_clusters clusters\"\nprintln(txt)\nt.write(txt + \"\\n\")",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "Total: 3 clusters\nnb_clusters: Long = 3\ntxt: String = Total: 3 clusters\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 100
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val pheno_data = sc.textFile(phenotypes_path)\nval phenotypes = pheno_data.map(_.split('\\t')).map{\n  x =>\n  val terms = x(4).split(\";\")\n  x(0) -> terms\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "pheno_data: org.apache.spark.rdd.RDD[String] = MapPartitionsRDD[138] at textFile at <console>:90\nphenotypes: org.apache.spark.rdd.RDD[(String, Array[String])] = MapPartitionsRDD[140] at map at <console>:91\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[140] at map at &lt;console&gt;:91"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 101
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val assignedC = sc.parallelize(C.toSeq)\nval match_names = U.map(e => (e.getId, e.getName))\nmatch_names.count\nU.unpersist()\nval cluster_by_name = match_names.join(assignedC).values",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "assignedC: org.apache.spark.rdd.RDD[(Int, Int)] = ParallelCollectionRDD[141] at parallelize at <console>:110\nmatch_names: org.apache.spark.rdd.RDD[(Int, String)] = MapPartitionsRDD[142] at map at <console>:111\ncluster_by_name: org.apache.spark.rdd.RDD[(String, Int)] = MapPartitionsRDD[146] at values at <console>:114\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[146] at values at &lt;console&gt;:114"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 102
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val clusters_collected = cluster_by_name.map{case(a,b) => (b,a)}.groupByKey.collect\n\nimport scala.math.abs\nimport org.apache.spark.AccumulatorParam\nimport org.apache.spark.sql.functions.lit\n\nobject ArrayAccumulatorParam extends AccumulatorParam[Array[Double]] {\n    def zero(initialValue: Array[Double]): Array[Double] = {\n        initialValue\n    }\n  \n  def addInPlace(t1: Array[Double], t2: Array[Double]): Array[Double] = {\n    require(t1.length == t2.length)\n    (0 until t1.length).foreach{idx =>\n      t1(idx) += t2(idx)\n    }\n    t1\n  }\n}\n\ndef calculate_centroids(names: Iterable[String], num_items_in_cluster: Int,\n                        samples: RDD[(String, Array[Double])]) : Array[Double] = {\n  val points = samples.filter{case(k,v) => names.toArray.contains(k) }.values\n  val nbFeatures = points.first.size\n  val total_pts = sc.accumulator(new Array[Double](nbFeatures))(ArrayAccumulatorParam)\n  //for every item in cluster j, compute the distance the the center of cluster j, take average\n  for (p <- points) {\n    total_pts += p.toArray\n  }\nreturn total_pts.value.map(_ / num_items_in_cluster)\n  return Array[Double]()\n}\n\n\ndef calculate_intra_cluster_dist(centroid:Array[Double], names: Iterable[String],\n                                 num_items_in_cluster: Int, samples: RDD[(String, Array[Double])]) : Double = {\n  var total_dist = sc.accumulator(0.0, \"Internal distance\")\n  val points = samples.filter{case(k,v) => names.toArray.contains(k) }.values\n  //for every item in cluster j, compute the distance the the center of cluster j, take average\n  for (p <- points) {\n    val dist = p.toArray.zip(centroid).map{ case (a,b) => abs(a - b) }.reduce(_ + _)\n    total_dist += dist\n  }\nreturn total_dist.value/num_items_in_cluster\n}\n\ndef DBI(clusters : Array[(Int, Iterable[String])], samples: RDD[(String, Array[Double])]) : Double = {\n\n  val num_clusters = clusters.length\n  \n  val num_items_in_clusters = Array.fill(num_clusters)(0) \n  for (i <- 0 until num_clusters) {\n    num_items_in_clusters(i) = clusters(i)._2.size\n  }\n  //println(num_items_in_clusters.mkString(\",\"))\n  \n  var max_num = -Double.MaxValue\n\n  val centroids = Array.fill(num_clusters)(Array[Double]())\n  for (i <- 0 until num_clusters) {\n    centroids(i) = calculate_centroids(clusters(i)._2, num_items_in_clusters(i), samples)\n  }  \n  //println(centroids.map(_.mkString(\",\")).mkString(\" | \"))\n  \n  val intra_s = Array.fill(num_clusters)(0.0)\n  for (i <- 0 until num_clusters) {\n    intra_s(i) = calculate_intra_cluster_dist(centroids(i), clusters(i)._2, num_items_in_clusters(i), samples)\n  }\n  //println(intra_s.mkString(\",\"))\n  \n  for (i <- 0 until num_clusters) {\n    for (j <- 0 until num_clusters) {\n      if (i != j) {\n        val m_ij = centroids(i).zip(centroids(j)).map{ case (a,b) => abs(a - b) }.reduce(_ + _)\n        val r_ij = (intra_s(i) + intra_s(j)) / m_ij\n        if (r_ij > max_num) {\n          max_num = r_ij\n        }\n      }\n    }\n  }\n\nreturn max_num\n\n}\n\n//val dbi = DBI(clusters_collected, data.mapValues(_.toArray))\n//t.write(\"\\nDBI = \" + dbi + \"\\n\")",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "clusters_collected: Array[(Int, Iterable[String])] = Array((0,CompactBuffer(DDDP101968)), (1,CompactBuffer(DDDP102189)), (2,CompactBuffer(DDDP111239)))\nimport scala.math.abs\nimport org.apache.spark.AccumulatorParam\nimport org.apache.spark.sql.functions.lit\ndefined module ArrayAccumulatorParam\ncalculate_centroids: (names: Iterable[String], num_items_in_cluster: Int, samples: org.apache.spark.rdd.RDD[(String, Array[Double])])Array[Double]\ncalculate_intra_cluster_dist: (centroid: Array[Double], names: Iterable[String], num_items_in_cluster: Int, samples: org.apache.spark.rdd.RDD[(String, Array[Double])])Double\nDBI: (clusters: Array[(Int, Iterable[String])], samples: org.apache.spark.rdd.RDD[(String, Array[Double])])Double\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 103
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val res = cluster_by_name.join(data).map{\n  case (patient, (cluster_id, vector)) =>\n  (cluster_id, vector.toArray.mkString(\", \") + \"\\n\")\n}\n\nval nb_members = res.mapValues(x => 1).reduceByKey(_ + _)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "res: org.apache.spark.rdd.RDD[(Int, String)] = MapPartitionsRDD[152] at map at <console>:127\nnb_members: org.apache.spark.rdd.RDD[(Int, Int)] = ShuffledRDD[154] at reduceByKey at <console>:132\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "ShuffledRDD[154] at reduceByKey at &lt;console&gt;:132"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 104
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val tot = cluster_by_name.join(effects).map{\n  case (patient, (cluster_id, effect_vector)) =>\n  (cluster_id, effect_vector)\n}.\nreduceByKey((a,b) =>  (a zip b).map{ case (a_val, b_val) => a_val + b_val }).\n// To get average number of each type (high, moderate, low, modifier) per patient inside that cluster\njoin(nb_members).mapValues{\n    case (array, nb_mem) =>\n    array.map( _ *1.0 / nb_mem)\n} \n\n// Alternatively, to get the percentage of each type (high, moderate, low, modifier) inside that cluster, replace by:\n/*mapValues{\n  array =>\n  val all_vars = array.sum\n  array.map( _ *100 / all_vars )\n}*/\n\ntot.collect.foreach{\n  case (id, res) =>\n  txt = \"Proportions of each mutations over cluster \" + id + \" :\\n\" + \" HIGH: \" + res(0) + \"\\n MODERATE:\" + res(1)\n  txt += \"\\n LOW:\" + res(2) + \"\\n MODIFIER:\" + res(3) + \"\\n\"\n  //println(txt)\n  t.write(txt)\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "tot: org.apache.spark.rdd.RDD[(Int, Array[Double])] = MapPartitionsRDD[163] at mapValues at <console>:154\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 105
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "Average vector representing the \"centroid\" of the created cluster"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val avg_vector = cluster_by_name.join(data).map{\n  case (patient, (cluster_id, vector)) =>\n  (cluster_id, vector.toArray)\n}.\nreduceByKey((a,b) =>  (a zip b).map{ case (a_val, b_val) => a_val + b_val }).\njoin(nb_members).mapValues{\n  case (vector, nb) =>\n  vector.map( _ / nb)\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "avg_vector: org.apache.spark.rdd.RDD[(Int, Array[Double])] = MapPartitionsRDD[172] at mapValues at <console>:113\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[172] at mapValues at &lt;console&gt;:113"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 106
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val phenos_by_cluster = cluster_by_name.join(phenotypes).values\n\nval counts_by_pheno = phenos_by_cluster.map{\n  case(cluster, pheno_list) => pheno_list.map(e => ((cluster, e), 1))\n}.flatMap{a => a.toList}.reduceByKey(_ + _).persist\n\nval counts_overall = counts_by_pheno.map{\n  case ((cluster, hpo), cnt) =>\n  (hpo, cnt)\n}.reduceByKey(_ + _)\n\nval counts_by_cluster_with_percentages = counts_by_pheno.map{\n  case ((cluster, hpo), cnt) =>\n  (hpo, (cluster, cnt))\n}.join(counts_overall).map{\n  case (hpo, ((cluster, cnt), tot)) =>\n  (cluster, (hpo, cnt, cnt*100.0/tot))\n}.groupByKey",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "phenos_by_cluster: org.apache.spark.rdd.RDD[(Int, Array[String])] = MapPartitionsRDD[176] at values at <console>:118\ncounts_by_pheno: org.apache.spark.rdd.RDD[((Int, String), Int)] = ShuffledRDD[179] at reduceByKey at <console>:122\ncounts_overall: org.apache.spark.rdd.RDD[(String, Int)] = ShuffledRDD[181] at reduceByKey at <console>:127\ncounts_by_cluster_with_percentages: org.apache.spark.rdd.RDD[(Int, Iterable[(String, Int, Double)])] = ShuffledRDD[187] at groupByKey at <console>:135\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "ShuffledRDD[187] at groupByKey at &lt;console&gt;:135"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 107
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val patients_by_cluster = cluster_by_name.map{case (patient, cluster) => (cluster, patient)}.reduceByKey(_ + \", \" + _)\n\nres.aggregateByKey(\"\")(_ +_, _+_).\njoin(nb_members).join(patients_by_cluster).join(avg_vector).join(counts_by_cluster_with_percentages).\ncollect.foreach{\n  case (cluster_id, ((((ensemble, nb), patients_list), avg_vector), hpo_array)) =>\n  txt = \"----- CLUSTER \" + cluster_id + \" -----\\n\"\n  txt += \"Total of \" + nb + \" patients :\" + patients_list.toString + \"\\n\"\n  txt += \"Average vector: \" + avg_vector.mkString(\",\") + \"\\n\\n\"\n  txt += ensemble\n  //println(txt)\n  t.write(txt)\n  hpo_array.foreach{\n    case (hpo, cnt, perc) =>\n    val formatted_res = \"%-40s: %d (%.1f%% of the ppl having this HPO)\".format(hpo, cnt, perc)\n    //println(formatted_res)\n    t.write(formatted_res + \"\\n\")\n  }\n}\n\nt.close()",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "----- CLUSTER 0 -----\nTotal of 1 patients :DDDP101968\nAverage vector: -1.038002847446633,-0.812165252335759,-0.6614769048245084,24.0,440.0,18.0,20.0\n\n-1.038002847446633, -0.812165252335759, -0.6614769048245084, 24.0, 440.0, 18.0, 20.0\n\nHyperacusis                             : 1 (100.0% of the ppl having this HPO)\nGlobal developmental delay              : 1 (50.0% of the ppl having this HPO)\nSlanting of the palpebral fissure       : 1 (100.0% of the ppl having this HPO)\nSpecific learning disability            : 1 (100.0% of the ppl having this HPO)\nSynophrys                               : 1 (100.0% of the ppl having this HPO)\nShort fifth metatarsal                  : 1 (100.0% of the ppl having this HPO)\nTelecanthus                             : 1 (100.0% of the ppl having this HPO)\n----- CLUSTER 1 -----\nTotal of 1 patients :DDDP102189\nAverage vector: 0.08092315843328314,-0.304755401918555,-0.48891771226159314,19.0,446.0,28.0,22.0\n\n0.08092315843328314, -0.304755401918555, -0.48891771226159314, 19.0, 446.0, 28.0, 22.0\n\nGlobal developmental delay              : 1 (50.0% of the ppl having this HPO)\nAgenesis of corpus callosum             : 1 (100.0% of the ppl having this HPO)\nGrowth delay                            : 1 (100.0% of the ppl having this HPO)\nMicrognathia                            : 1 (100.0% of the ppl having this HPO)\nGlabellar hemangioma                    : 1 (100.0% of the ppl having this HPO)\nHypoplastic nostrils                    : 1 (100.0% of the ppl having this HPO)\nPreauricular skin tag                   : 1 (100.0% of the ppl having this HPO)\nMicrocephaly                            : 1 (100.0% of the ppl having this HPO)\nInguinal hernia                         : 1 (100.0% of the ppl having this HPO)\n----- CLUSTER 2 -----\nTotal of 1 patients :DDDP111239\nAverage vector: 0.9570796890133311,1.1169206542542995,1.1503946170861015,32.0,604.0,26.0,32.0\n\n0.9570796890133311, 1.1169206542542995, 1.1503946170861015, 32.0, 604.0, 26.0, 32.0\n\nUnilateral renal agenesis               : 1 (100.0% of the ppl having this HPO)\nPeripheral pulmonary artery stenosis    : 1 (100.0% of the ppl having this HPO)\nIntrahepatic cholestasis                : 1 (100.0% of the ppl having this HPO)\nCleft soft palate                       : 1 (100.0% of the ppl having this HPO)\nProminent metopic ridge                 : 1 (100.0% of the ppl having this HPO)\nThoracic hemivertebrae                  : 1 (100.0% of the ppl having this HPO)\nHearing impairment                      : 1 (100.0% of the ppl having this HPO)\nDelayed speech and language development : 1 (100.0% of the ppl having this HPO)\npatients_by_cluster: org.apache.spark.rdd.RDD[(Int, String)] = ShuffledRDD[189] at reduceByKey at <console>:137\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 108
+    } ]
+  } ],
+  "nbformat" : 4
+}

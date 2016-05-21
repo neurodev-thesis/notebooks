@@ -1,0 +1,282 @@
+{
+  "metadata" : {
+    "name" : "CAST (1000G)",
+    "user_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "auto_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "language_info" : {
+      "name" : "scala",
+      "file_extension" : "scala",
+      "codemirror_mode" : "text/x-scala"
+    },
+    "trusted" : true,
+    "customLocalRepo" : null,
+    "customRepos" : null,
+    "customDeps" : null,
+    "customImports" : null,
+    "customArgs" : null,
+    "customSparkConf" : null
+  },
+  "cells" : [ {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "#Clustering: CAST\n\nClustering applied to the [1000 Genomes dataset](http://1000genomes.org/). It is used after creation of a similarity matrix based on the elements to cluster (see the related notebook)."
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the parameters of the process:\n* the path to our HDFS\n* the common path to the input files (similarity matrix S and set of elements U)\n* the path to the file containing the patients' phenotypes\n* the output path to print out results to HDFS\n\n* the starting range of affinity thresholds to test\n* the number *m* of parallel computations in the given range at every iteration\n* the stop value (when the range of thresholds has a difference inferior to this value, iterations are stopped)\n* optionally, the maximal number of iterations"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val hdfs_path = \"hdfs:/user/ndewit/\"\nval input_path = hdfs_path + \"CASTUtils_1000G_variants\"\nval phenotypes_path = hdfs_path + \"datasets/1000g/1000G_patients.txt\"\nval output_path = hdfs_path + \"1000G_CAST_results.txt\"\n\nval (min_t, max_t) = (0.05, 0.92)\nval m = 20\nval stop_value = 0.01\nval max_nb_iterations = 5",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "hdfs_path: String = hdfs:/user/ndewit/\ninput_path: String = hdfs:/user/ndewit/CASTUtils_1000G_variants\nphenotypes_path: String = hdfs:/user/ndewit/datasets/1000g/1000G_patients.txt\noutput_path: String = hdfs:/user/ndewit/1000G_CAST_results.txt\nmin_t: Double = 0.05\nmax_t: Double = 0.92\nm: Int = 20\nstop_value: Double = 0.01\nmax_nb_iterations: Int = 5\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "5"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 14
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Inputs retrieval\n\nWe retrieve both the similarity matrix S previously built and our set of elements U (containing name-id associations, without their features as we do not need them thanks to S).\n\nThe S matrix, which will be used on every executor node, can avoid being sent repeatedly thanks to Spark's broadcast variables, which instruct the executors to cache a read-only version of the matrix on each machine."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "var name_by_id = sc.objectFile[(Int, String)](input_path + \"_U\")\nval nb_elements = name_by_id.count.toInt\nval all_ids = name_by_id.keys.collect\n\nval S = sc.broadcast{\n  sc.objectFile[(Int, (Int, Double))](input_path + \"_S\").\n  aggregateByKey(scala.collection.mutable.HashSet.empty[(Int, Double)])(_+_, _++_).\n  mapValues(_.toMap[Int, Double]).collectAsMap\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "name_by_id: org.apache.spark.rdd.RDD[(Int, String)] = MapPartitionsRDD[60] at objectFile at <console>:62\nnb_elements: Int = 3\nall_ids: Array[Int] = Array(0, 1, 2)\nS: org.apache.spark.broadcast.Broadcast[scala.collection.Map[Int,scala.collection.immutable.Map[Int,Double]]] = Broadcast(29)\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "Broadcast(29)"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 15
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "Whenever an element is added or removed from a cluster, we update all affinities with regards to the cluster based on that element. The interest of having built the similarity matrix as (ID1, (ID2, value)) instead of ((ID1, ID2), value) is that we can easily select the whole row of values related to the added/removed element, since they always must all be updated at the same time."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def add_affinities(a: scala.collection.mutable.Map[Int, Double], S_row: Map[Int, Double]): Unit = {\n  for (element <- a) {\n    val id : Int = element._1\n    val new_affinity : Double = element._2 + S_row(id)\n    a -= id\n    a += (id -> new_affinity)\n  }\n}\n\ndef remove_affinities(a: scala.collection.mutable.Map[Int, Double], S_row: Map[Int, Double]): Unit = {\n  for (element <- a) {\n    val id : Int = element._1\n    val new_affinity : Double = element._2 - S_row(id)\n    a -= id\n    a += (id -> new_affinity)\n  }\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "add_affinities: (a: scala.collection.mutable.Map[Int,Double], S_row: Map[Int,Double])Unit\nremove_affinities: (a: scala.collection.mutable.Map[Int,Double], S_row: Map[Int,Double])Unit\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 16
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the core of the CAST algorithm.\n* We initialize a set containing all the elements belonging to already closed clusters in the form (Sample ID, Attributed cluster ID)\n* The original algorithm defines the set U as containing all elements ; however, since the comparison between elements is already contained in the similarity matrix, we can simply use the list of all element IDs instead (which lowers the memory pressure). Note that U will be modified during the clustering process, and can thus not be a RDD, since it would otherwise get shipped to executors where changes would occur, but these changes would never go back to the driver. We thus ground U into a non-distributed mutable set.\n* While elements remain in U, we alternate between Add and Remove operations\n* We keep track of the elements contained in the current cluster via the mutable set *C_open*\n* We keep track of the affinities of all elements with regards to the current cluster via the mutable Map *affinities*\n* We find the element that has maximum or minimum affinity wrt the cluster via the *maxBy()* function, linking it to the *affinities* Map.\n\nPrinted reports on the different actions can be uncommented to follow the algorithm's progress."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def core_CAST(threshold : Double) : scala.collection.mutable.Set[(Int, Int)] = {\n  \n  //C : Set containing the already closed clusters\n  val C = scala.collection.mutable.Set.empty[(Int, Int)] //(Sample ID, Cluster)\n  var cluster_id = 0\n\n  // We ground U into a non-RDD mutable Set\n  val mut_U = scala.collection.mutable.Set.empty[Int] ++ all_ids\n\n  // We do the whole thing while there are still elements in U\n  while (!mut_U.isEmpty){\n\n    val remaining = mut_U.size\n    //println(s\"t=$threshold: $remaining elements remaining in U...\")\n\n    // Open a new current, open cluster of elements\n    var C_open = scala.collection.mutable.Set.empty[Int]\n\n    // Set all affinities wrt this new cluster to 0\n    var affinities = scala.collection.mutable.Map[Int, Double]() ++ all_ids.map(id => (id, 0.0)).toMap\n\n    var change_occurred : Boolean = false\n\n\n    do {\n\n      change_occurred = false\n\n\n      // ADD PHASE: Add high affinity elements to the current cluster\n\n      //println(\"-- ADD --\")\n\n      var max_element = -1\n      var max_affinity : Double = 0\n\n      // Avoid exceptions due to a max/reduce/maxBy on an empty collection\n      if (!mut_U.isEmpty) {\n\n        max_element = mut_U.maxBy(e => affinities(e))\n        max_affinity = affinities(max_element)\n        //println(s\"Max of U is $max_element with affinity $max_affinity\")\n      }\n\n      // While the last selected element is over the threshold\n      while ((!mut_U.isEmpty) && (max_affinity >= threshold*C_open.size)) {\n\n        //println(\"... and it is over threshold\")\n\n        val to_rem = mut_U.find(x => x == max_element).head\n        C_open += to_rem\n        mut_U -= to_rem\n        \n        add_affinities(affinities, S.value.apply(max_element))\n\n        // We find the next maximal element\n        if (!mut_U.isEmpty) {\n          max_element = mut_U.maxBy(e => affinities(e))\n          max_affinity = affinities(max_element)\n          //println(s\"New max of U is $max_element with affinity $max_affinity\")\n        }\n\n        change_occurred = true\n      }\n\n\n      //-----------------------------------\n\n\n      // REMOVE PHASE : Remove low affinity elements to the current cluster\n\n      //println(\"-- REMOVE --\")\n\n      var min_element = -1\n      var min_affinity : Double = 0\n\n      if (!C_open.isEmpty) {\n\n        min_element = C_open.minBy(e => affinities(e))\n        min_affinity = affinities(min_element)\n\n        //println(s\"Min of C_open is $min_element with affinity $min_affinity\")\n      }\n\n      while (!C_open.isEmpty && min_affinity < threshold*C_open.size) {\n\n        //println(\"... and it is under threshold\")\n\n        val to_add = C_open.find(x => x == min_element).head\n        C_open -= to_add\n        mut_U += to_add\n\n        remove_affinities(affinities, S.value.apply(max_element))\n\n        //Find the next minimal element\n        if (!C_open.isEmpty) {\n          min_element = C_open.minBy(e => affinities(e))\n          min_affinity = affinities(min_element)\n          //println(s\"New min of U is $min_element with affinity $min_affinity\")\n        }\n\n        change_occurred = true\n      }\n\n\n    } while(change_occurred)\n\n    //println(s\"No changes occurred: this cluster (id $cluster_id) is complete.\\n\")\n\n    C_open.foreach{ e => C += ((e, cluster_id)) }\n    cluster_id = cluster_id + 1\n\n  }\n\n  return C\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "core_CAST: (threshold: Double)scala.collection.mutable.Set[(Int, Int)]\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 17
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering evaluation\n\nWe evaluate the quality of the clustering using the true labels of our samples. The evaluation index is called Rand Index, and its result is found between 0 and 1, with 1 being a perfect clustering."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "//We define the possible 5 superpopulations\nval EAS = Array(\"CHB\", \"JPT\", \"CHS\", \"CDX\", \"KHV\")\nval EUR = Array(\"CEU\", \"TSI\", \"FIN\", \"GBR\", \"IBS\")\nval AFR = Array(\"YRI\", \"LWK\", \"GWD\", \"MSL\", \"ESN\", \"ASW\", \"ACB\")\nval AMR = Array(\"MXL\", \"PUR\", \"CLM\", \"PEL\")\nval SAS = Array(\"GIH\", \"PJL\", \"BEB\", \"STU\", \"ITU\")\n\nval pheno_data = sc.textFile(phenotypes_path)\nval phenotypes = pheno_data.map(_.split('\\t')).map{\n  x =>\n  var pop = x(6)\n  \n  //Mapping from 26 populations to 5 super populations (see http://www.1000genomes.org/category/population/)\n  if (EAS.contains(pop)) { pop = \"East Asian (EAS)\" }\n  else if (EUR.contains(pop)) { pop = \"European (EUR)\" }\n  else if (AFR.contains(pop)) { pop = \"African (AFR)\" }\n  else if (AMR.contains(pop)) { pop = \"Ad Mixed American (AMR)\" }\n  else if (SAS.contains(pop)) { pop = \"South Asian (SAS)\" }\n  \n  x(1) -> pop\n}\n\nval pheno_ids = phenotypes.\nmapValues{ //Representation of our phenotypes as Int\n      pop =>\n      if (pop == \"East Asian (EAS)\") { 1 }\n      else if (pop == \"European (EUR)\") { 2 }\n      else if (pop == \"African (AFR)\") { 3 }\n      else if (pop == \"Ad Mixed American (AMR)\") { 4 }\n      else if (pop == \"South Asian (SAS)\") { 5 }\n      else { -1 }\n}\n\n//We broadcast the phenotypes associations\nval label_by_id = sc.broadcast{ name_by_id.map{ case (a,b) => (b,a) }.join(pheno_ids).values.collectAsMap }",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "EAS: Array[String] = Array(CHB, JPT, CHS, CDX, KHV)\nEUR: Array[String] = Array(CEU, TSI, FIN, GBR, IBS)\nAFR: Array[String] = Array(YRI, LWK, GWD, MSL, ESN, ASW, ACB)\nAMR: Array[String] = Array(MXL, PUR, CLM, PEL)\nSAS: Array[String] = Array(GIH, PJL, BEB, STU, ITU)\npheno_data: org.apache.spark.rdd.RDD[String] = MapPartitionsRDD[67] at textFile at <console>:85\nphenotypes: org.apache.spark.rdd.RDD[(String, String)] = MapPartitionsRDD[69] at map at <console>:86\npheno_ids: org.apache.spark.rdd.RDD[(String, Int)] = MapPartitionsRDD[70] at mapValues at <console>:101\nlabel_by_id: org.apache.spark.broadcast.Broadcast[scala.collection.Map[Int,Int]] = Broadcast(34)\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "Broadcast(34)"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 18
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def evaluation_index(C : scala.collection.mutable.Set[(Int, Int)]) : Double = {\n  \n  val both = C.map{ case (id, cluster) => (id, (cluster, label_by_id.value.apply(id))) }\n  \n  return RID(both)\n}\n\n\ndef RID(to_eval : scala.collection.mutable.Set[(Int, (Int, Int))]) : Double = {\n\n    def choose2(n : Int) : Double = {\n    return n * (n - 1) / 2;\n  }\n\n  val denom = choose2(nb_elements) //Denominator of RID is (nb_samples choose 2)\n  \n  // a : number of pairs in the same cluster in C and in K\n  // b : number of pairs in different clusters in C and in K\n  var a = 0\n  var b = 0\n\n  //browse through all pairs of ID ; e1.getLabel == e2.getLabel && res1 == res2 ; != && !=\n\n  //not themselves, and not twice the same pair\n  for ((id1, classes1) <- to_eval ; (id2, classes2) <- to_eval) {\n\n    if (id1 != id2) {\n      if (classes1._1 == classes2._1 && classes1._2 == classes2._2) {\n        a += 1 //Classes match, and they should\n      }\n      else if (classes1._1 != classes2._1 && classes1._2 != classes2._2) {\n        b += 1 //Classes don't match, and they shouldn't\n      }\n    }\n  }\n\n  //We divide these counts by two since each pair was counted in both orders (a,b and b,a)\n  (a/2 + b/2) / denom\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "evaluation_index: (C: scala.collection.mutable.Set[(Int, Int)])Double\nRID: (to_eval: scala.collection.mutable.Set[(Int, (Int, Int))])Double\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 19
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "Function that applies the clustering, evaluates its quality, calculates the number of created clusters and returns the evaluation."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def apply_CAST(threshold : Double) : (Double, Int, scala.collection.mutable.Set[(Int, Int)]) = {\n  val clustering_results = core_CAST(threshold)\n  val eval_index = evaluation_index(clustering_results)\n  \n  val nb_clusters = clustering_results.map(_._2).toList.distinct.size\n  \n  //println(s\"(t, RID, #clusters) = ($threshold, $eval_index, $nb_clusters)\")\n  return (eval_index, nb_clusters, clustering_results)\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "apply_CAST: (threshold: Double)(Double, Int, scala.collection.mutable.Set[(Int, Int)])\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 20
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import math.{max, min}\n\ndef calc_step(range_values : (Double, Double), m : Int) : Double = { (range_values._2 - range_values._1) / m }\ndef end_checks(range_values : (Double, Double)) : Boolean = {\n  //println(s\"Range_values: $range_values | Stop value: $stop_value\")\n  range_values._2 - range_values._1 < stop_value\n}\n\nvar cnt_iterations = 0\nvar range_values = (min_t, max_t)\nvar step = calc_step(range_values, m)\nvar thresholds = sc.parallelize(range_values._1 to range_values._2 by step)\nvar best = (range_values._1, -1.0)\n\nwhile (cnt_iterations < max_nb_iterations && !end_checks(range_values)) {\n  //println(s\"-- Iteration $cnt_iterations --\")\n  \n  val results = thresholds.map{\n    threshold =>\n    val (eval_value, _, _) = apply_CAST(threshold)\n    (threshold, eval_value)\n  }\n  \n  best = results.max()(new Ordering[Tuple2[Double, Double]]() {\n      override def compare(x: (Double, Double), y: (Double, Double)): Int = \n      Ordering[Double].compare(x._2, y._2)\n      })\n  \n  \n  range_values = (max(best._1 - step, min_t), min(best._1 + step, max_t))\n  step = calc_step(range_values, m)\n  thresholds = sc.parallelize(range_values._1 until range_values._2 by step)\n  cnt_iterations = cnt_iterations + 1\n}\n\nval (best_t, best_eval) = best\n\nprintln(\"**********************************************\\n\" +\n        s\"Best threshold is $best_t, giving an external evaluation of $best_eval \\n\" +\n        \"**********************************************\"\n       )\n\nval (eval_value, numClusters, observed_clusters) = apply_CAST(best_t)\n\n//Note that if we wish to only perform a single iteration with fixed threshold, we can keep only this last line.",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "**********************************************\nBest threshold is 0.3893000000000001, giving an external evaluation of 1.0 \n**********************************************\nimport math.{max, min}\ncalc_step: (range_values: (Double, Double), m: Int)Double\nend_checks: (range_values: (Double, Double))Boolean\ncnt_iterations: Int = 2\nrange_values: (Double, Double) = (0.38495000000000007,0.3936500000000001)\nstep: Double = 4.3500000000000206E-4\nthresholds: org.apache.spark.rdd.RDD[Double] = ParallelCollectionRDD[80] at parallelize at <console>:175\nbest: (Double, Double) = (0.3893000000000001,1.0)\nbest_t: Double = 0.3893000000000001\nbest_eval: Double = 1.0\neval_value: Double = 1.0\nnumClusters: Int = 3\nobserved_clusters: scala.collection.mutable.Set[(Int, Int)] = Set((0,0), (1,1), (2,2))\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "Set((0,0), (1,1), (2,2))"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 21
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Output of results\n\nWe output our clustering results to a single file on HDFS. The file does not get written out until the *close()* method is reached."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.hadoop.fs._\nimport java.io.BufferedOutputStream\n\nval fs = FileSystem.get(sc.hadoopConfiguration)\n\nclass TextFile(file_path : String) {\n  val physical_file = fs.create(new Path(file_path))\n  val stream = new BufferedOutputStream(physical_file)\n\n  def write(text : String) : Unit = {\n    stream.write(text.getBytes(\"UTF-8\"))\n  }\n\n  def close() : Unit = {\n    stream.close()\n  }\n}\n\nval t = new TextFile(output_path)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.hadoop.fs._\nimport java.io.BufferedOutputStream\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_-1975272380_11, ugi=ndewit (auth:SIMPLE)]]\ndefined class TextFile\nt: TextFile = $iwC$$iwC$TextFile@46e9536d\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "$line44.$read$$iwC$$iwC$TextFile@46e9536d"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 22
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def print_results(C : scala.collection.mutable.Set[(Int, Int)]) : Unit = {\n\n  val assignedC = sc.parallelize(C.toSeq) //(id_int, cluster)\n  val cluster_by_name = name_by_id.join(assignedC).values //(id_name, cluster)\n\n  val phenos_by_cluster = cluster_by_name.join(phenotypes).values\n\n  // We count the number of occurrences by phenotype, by cluster\n  val counts_by_pheno = phenos_by_cluster.map{e => (e, 1)}.reduceByKey(_ + _).persist\n\n  // We count the number of occurrences by phenotype over all clusters\n  val counts_overall = counts_by_pheno.map{\n    case ((cluster, hpo), cnt) =>\n    (hpo, cnt)\n  }.reduceByKey(_ + _)\n\n  // We use the previous RDD to add the corresponding percentage of phenotypes to each occurrence count\n  val counts_by_cluster_with_percentages = counts_by_pheno.map{\n    case ((cluster, hpo), cnt) =>\n    (hpo, (cluster, cnt))\n  }.join(counts_overall).map{\n    case (hpo, ((cluster, cnt), tot)) =>\n    (cluster, (hpo, cnt, cnt*100.0/tot))\n  }.groupByKey\n\n  // We go through the content of this RDD to display it as formatted strings\n  counts_by_cluster_with_percentages.collect.foreach{\n    case (cluster, hpo_array) =>\n    //println(\"--- Cluster \" + cluster.toString + \" ---\")\n    t.write(\"--- Cluster \" + cluster.toString + \" ---\\n\")\n    hpo_array.foreach{\n      case (hpo, cnt, perc) =>\n      val formatted_res = \"%-40s: %d (%.1f%% of the people of this superpopulation)\".format(hpo, cnt, perc)\n      //println(formatted_res)\n      t.write(formatted_res + \"\\n\")\n    }\n  }\n\n  t.close()\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "print_results: (C: scala.collection.mutable.Set[(Int, Int)])Unit\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 23
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "print_results(observed_clusters)",
+    "outputs" : [ {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 24
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "",
+    "outputs" : [ {
+      "ename" : "Error",
+      "output_type" : "error",
+      "traceback" : [ "Incomplete (hint: check the parenthesis)" ]
+    } ]
+  } ],
+  "nbformat" : 4
+}

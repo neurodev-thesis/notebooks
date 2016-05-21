@@ -1,0 +1,55 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.spark.mllib.clustering.dbscan
+
+import org.apache.spark.mllib.linalg.Vector
+import math.{pow, sqrt}
+
+case class DBSCANPoint(val id : String, val vector: Vector) {
+
+  def getId() = id
+  def features() = vector
+  def featuresA() = vector.toArray
+  def feature(i : Int) = vector(i)
+
+  def distanceSquared(other: DBSCANPoint): Double = {
+   (featuresA zip other.featuresA).map{ case (v1, v2) => pow(v1 - v2, 2) }.sum
+  }
+
+ def custom3_distance(other: DBSCANPoint): Double = {
+  val duos = featuresA zip other.featuresA
+
+  val tmp_score = pow(duos(0)._1 - duos(0)._2, 2)*3
+  val nausea_score = pow(duos(1)._1 - duos(1)._2, 2)*1
+  val lumbar_score = pow(duos(2)._1 - duos(2)._2, 2)*1
+  val pushing_score = pow(duos(3)._1 - duos(3)._2, 2)*1
+  val mictu_score = pow(duos(4)._1 - duos(4)._2, 2)*0
+  val burning_score = pow(duos(5)._1 - duos(5)._2, 2)*0
+  
+  val eps = 0.1
+  
+  //Since for "neither" we never have nausea or pushing
+  if ((nausea_score < eps && duos(1)._1 < 0) && (pushing_score < eps && duos(3)._1 < 0)) { 0 }
+  
+  //Since for "nephrethis" we can have stuff as diverse as "g no yes yes no yes" vs "w yes yes no yes no" => for this case,
+  //lumbar is always positive, the others as difference BUT difference in temperature is under 2.5 (because larger than that
+  //and we integrate some "neither" cases too
+  else if ((lumbar_score < eps && duos(2)._1 > 0) && (nausea_score > eps && pushing_score > eps && tmp_score < 2.5*3)) { 0 }
+  else { sqrt(tmp_score + nausea_score + lumbar_score + pushing_score + mictu_score + burning_score) }
+}
+
+}

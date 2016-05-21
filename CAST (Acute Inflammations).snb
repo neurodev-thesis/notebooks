@@ -19,7 +19,7 @@
   "cells" : [ {
     "metadata" : { },
     "cell_type" : "markdown",
-    "source" : "#Clustering: Smart-CAST\n\nClustering applied to the [Acute inflammations dataset](https://archive.ics.uci.edu/ml/datasets/Acute+Inflammations) (UCI). As the dataset is not of large size, no separate preprocessing is necessary."
+    "source" : "#Clustering: CAST\n\nClustering applied to the [Acute inflammations dataset](https://archive.ics.uci.edu/ml/datasets/Acute+Inflammations) (UCI). As the dataset is not of large size, no separate preprocessing is necessary."
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -42,7 +42,7 @@
         "text/html" : "5"
       },
       "output_type" : "execute_result",
-      "execution_count" : 1
+      "execution_count" : 16
     } ]
   }, {
     "metadata" : { },
@@ -59,14 +59,14 @@
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",
-      "text" : "raw_data: org.apache.spark.rdd.RDD[String] = ParallelCollectionRDD[2] at parallelize at <console>:51\nimport org.apache.spark.mllib.linalg.Vectors\nelements: org.apache.spark.rdd.RDD[(Int, org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[3] at map at <console>:55\n"
+      "text" : "raw_data: org.apache.spark.rdd.RDD[String] = ParallelCollectionRDD[25] at parallelize at <console>:67\nimport org.apache.spark.mllib.linalg.Vectors\nelements: org.apache.spark.rdd.RDD[(Int, org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[26] at map at <console>:71\n"
     }, {
       "metadata" : { },
       "data" : {
-        "text/html" : "MapPartitionsRDD[3] at map at &lt;console&gt;:55"
+        "text/html" : "MapPartitionsRDD[26] at map at &lt;console&gt;:71"
       },
       "output_type" : "execute_result",
-      "execution_count" : 2
+      "execution_count" : 17
     } ]
   }, {
     "metadata" : { },
@@ -83,14 +83,14 @@
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",
-      "text" : "import org.apache.spark.mllib.feature.StandardScaler\nstdscaler: org.apache.spark.mllib.feature.StandardScalerModel = org.apache.spark.mllib.feature.StandardScalerModel@43510062\nsamples: org.apache.spark.rdd.RDD[(Int, Array[Double])] = MapPartitionsRDD[9] at mapValues at <console>:60\nnb_elements: Int = 120\n"
+      "text" : "import org.apache.spark.mllib.feature.StandardScaler\nstdscaler: org.apache.spark.mllib.feature.StandardScalerModel = org.apache.spark.mllib.feature.StandardScalerModel@3cd9f6f\nsamples: org.apache.spark.rdd.RDD[(Int, Array[Double])] = MapPartitionsRDD[32] at mapValues at <console>:82\nnb_elements: Int = 120\n"
     }, {
       "metadata" : { },
       "data" : {
         "text/html" : "120"
       },
       "output_type" : "execute_result",
-      "execution_count" : 3
+      "execution_count" : 18
     } ]
   }, {
     "metadata" : { },
@@ -118,7 +118,7 @@
         "text/html" : ""
       },
       "output_type" : "execute_result",
-      "execution_count" : 4
+      "execution_count" : 19
     } ]
   }, {
     "metadata" : { },
@@ -135,14 +135,14 @@
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",
-      "text" : "U: org.apache.spark.rdd.RDD[C_Element] = MapPartitionsRDD[11] at map at <console>:62\n"
+      "text" : "U: org.apache.spark.rdd.RDD[C_Element] = MapPartitionsRDD[34] at map at <console>:72\n"
     }, {
       "metadata" : { },
       "data" : {
-        "text/html" : "MapPartitionsRDD[11] at map at &lt;console&gt;:62"
+        "text/html" : "MapPartitionsRDD[34] at map at &lt;console&gt;:72"
       },
       "output_type" : "execute_result",
-      "execution_count" : 5
+      "execution_count" : 20
     } ]
   }, {
     "metadata" : { },
@@ -166,7 +166,7 @@
         "text/html" : ""
       },
       "output_type" : "execute_result",
-      "execution_count" : 6
+      "execution_count" : 21
     } ]
   }, {
     "metadata" : { },
@@ -183,14 +183,14 @@
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",
-      "text" : "raw_S: org.apache.spark.rdd.RDD[(Int, (Int, Double))] = MapPartitionsRDD[13] at map at <console>:73\n"
+      "text" : "raw_S: org.apache.spark.rdd.RDD[(Int, (Int, Double))] = MapPartitionsRDD[36] at map at <console>:83\n"
     }, {
       "metadata" : { },
       "data" : {
-        "text/html" : "MapPartitionsRDD[13] at map at &lt;console&gt;:73"
+        "text/html" : "MapPartitionsRDD[36] at map at &lt;console&gt;:83"
       },
       "output_type" : "execute_result",
-      "execution_count" : 7
+      "execution_count" : 22
     } ]
   }, {
     "metadata" : { },
@@ -207,14 +207,14 @@
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",
-      "text" : "max:0 ; min:(0,(110,-5.266817327534032))\nminKey2: (Int, (Int, Double)) = (0,(110,-5.266817327534032))\nstd_scaler: Double = 5.266817327534032\nS: org.apache.spark.broadcast.Broadcast[scala.collection.Map[Int,scala.collection.immutable.Map[Int,Double]]] = Broadcast(10)\n"
+      "text" : "max:0 ; min:(0,(110,-5.266817327534032))\nminKey2: (Int, (Int, Double)) = (0,(110,-5.266817327534032))\nstd_scaler: Double = 5.266817327534032\nS: org.apache.spark.broadcast.Broadcast[scala.collection.Map[Int,scala.collection.immutable.Map[Int,Double]]] = Broadcast(25)\n"
     }, {
       "metadata" : { },
       "data" : {
-        "text/html" : "Broadcast(10)"
+        "text/html" : "Broadcast(25)"
       },
       "output_type" : "execute_result",
-      "execution_count" : 8
+      "execution_count" : 23
     } ]
   }, {
     "metadata" : { },
@@ -231,14 +231,14 @@
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",
-      "text" : "label_by_id: org.apache.spark.broadcast.Broadcast[scala.collection.Map[Int,Int]] = Broadcast(12)\nall_ids: Iterable[Int] = Set(92, 101, 83, 110, 119, 104, 23, 95, 77, 86, 50, 59, 113, 41, 32, 68, 53, 62, 35, 44, 8, 17, 26, 80, 89, 116, 98, 71, 107, 11, 74, 56, 38, 29, 47, 20, 2, 65, 5, 14, 106, 115, 46, 118, 100, 109, 82, 91, 55, 64, 73, 58, 67, 85, 94, 40, 49, 4, 13, 22, 103, 31, 76, 112, 16, 97, 7, 79, 88, 70, 43, 52, 25, 34, 61, 10, 37, 1, 28, 19, 60, 87, 96, 105, 114, 69, 78, 99, 63, 90, 45, 54, 72, 81, 27, 108, 36, 117, 9, 18, 48, 21, 57, 12, 3, 84, 102, 93, 75, 30, 39, 111, 66, 15, 42, 51, 33, 24, 6, 0)\n"
+      "text" : "label_by_id: org.apache.spark.broadcast.Broadcast[scala.collection.Map[Int,Int]] = Broadcast(27)\nall_ids: Iterable[Int] = Set(92, 101, 83, 110, 119, 104, 23, 95, 77, 86, 50, 59, 113, 41, 32, 68, 53, 62, 35, 44, 8, 17, 26, 80, 89, 116, 98, 71, 107, 11, 74, 56, 38, 29, 47, 20, 2, 65, 5, 14, 106, 115, 46, 118, 100, 109, 82, 91, 55, 64, 73, 58, 67, 85, 94, 40, 49, 4, 13, 22, 103, 31, 76, 112, 16, 97, 7, 79, 88, 70, 43, 52, 25, 34, 61, 10, 37, 1, 28, 19, 60, 87, 96, 105, 114, 69, 78, 99, 63, 90, 45, 54, 72, 81, 27, 108, 36, 117, 9, 18, 48, 21, 57, 12, 3, 84, 102, 93, 75, 30, 39, 111, 66, 15, 42, 51, 33, 24, 6, 0)\n"
     }, {
       "metadata" : { },
       "data" : {
         "text/html" : "Set(92, 101, 83, 110, 119, 104, 23, 95, 77, 86, 50, 59, 113, 41, 32, 68, 53, 62, 35, 44, 8, 17, 26, 80, 89, 116, 98, 71, 107, 11, 74, 56, 38, 29, 47, 20, 2, 65, 5, 14, 106, 115, 46, 118, 100, 109, 82, 91, 55, 64, 73, 58, 67, 85, 94, 40, 49, 4, 13, 22, 103, 31, 76, 112, 16, 97, 7, 79, 88, 70, 43, 52, 25, 34, 61, 10, 37, 1, 28, 19, 60, 87, 96, 105, 114, 69, 78, 99, 63, 90, 45, 54, 72, 81, 27, 108, 36, 117, 9, 18, 48, 21, 57, 12, 3, 84, 102, 93, 75, 30, 39, 111, 66, 15, 42, 51, 33, 24, 6, 0)"
       },
       "output_type" : "execute_result",
-      "execution_count" : 9
+      "execution_count" : 24
     } ]
   }, {
     "metadata" : { },
@@ -262,7 +262,7 @@
         "text/html" : ""
       },
       "output_type" : "execute_result",
-      "execution_count" : 10
+      "execution_count" : 25
     } ]
   }, {
     "metadata" : { },
@@ -286,7 +286,7 @@
         "text/html" : ""
       },
       "output_type" : "execute_result",
-      "execution_count" : 11
+      "execution_count" : 26
     } ]
   }, {
     "metadata" : { },
@@ -310,7 +310,7 @@
         "text/html" : ""
       },
       "output_type" : "execute_result",
-      "execution_count" : 12
+      "execution_count" : 27
     } ]
   }, {
     "metadata" : { },
@@ -323,18 +323,18 @@
       "collapsed" : false
     },
     "cell_type" : "code",
-    "source" : "def apply_CAST(threshold : Double) : Double = {\n  val clustering_results = core_CAST(threshold)\n  val eval_index = evaluation_index(clustering_results)\n  \n  val nb_clusters = clustering_results.map(_._2).toList.distinct.size\n  \n  println(s\"(t, RID, nbClusters) = ($threshold, $eval_index, $nb_clusters)\")\n  return eval_index\n}",
+    "source" : "def apply_CAST(threshold : Double) : (Double, Int, scala.collection.mutable.Set[(Int, Int)]) = {\n  val clustering_results = core_CAST(threshold)\n  val eval_index = evaluation_index(clustering_results)\n  \n  val nb_clusters = clustering_results.map(_._2).toList.distinct.size\n  \n  //println(s\"(t, RID, #clusters) = ($threshold, $eval_index, $nb_clusters)\")\n  return (eval_index, nb_clusters, clustering_results)\n}",
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",
-      "text" : "apply_CAST: (threshold: Double)Double\n"
+      "text" : "apply_CAST: (threshold: Double)(Double, Int, scala.collection.mutable.Set[(Int, Int)])\n"
     }, {
       "metadata" : { },
       "data" : {
         "text/html" : ""
       },
       "output_type" : "execute_result",
-      "execution_count" : 15
+      "execution_count" : 28
     } ]
   }, {
     "metadata" : {
@@ -343,18 +343,66 @@
       "collapsed" : false
     },
     "cell_type" : "code",
-    "source" : "import math.{max, min}\n\ndef calc_step(range_values : (Double, Double), m : Int) : Double = { (range_values._2 - range_values._1) / m }\ndef end_checks(range_values : (Double, Double)) : Boolean = {\n  println(s\"Range_values: $range_values | Stop value: $stop_value\")\n  range_values._2 - range_values._1 < stop_value\n}\n\nvar cnt_iterations = 0\nvar range_values = (min_t, max_t)\nvar step = calc_step(range_values, m)\nvar thresholds = sc.parallelize(range_values._1 to range_values._2 by step)\nvar best = (range_values._1, -1.0)\n\nwhile (cnt_iterations < max_nb_iterations && !end_checks(range_values)) {\n  println(s\"-- Iteration $cnt_iterations --\")\n  \n  val results = thresholds.map{\n    threshold =>\n    \n    (threshold, apply_CAST(threshold))\n  }\n  \n  best = results.max()(new Ordering[Tuple2[Double, Double]]() {\n      override def compare(x: (Double, Double), y: (Double, Double)): Int = \n      Ordering[Double].compare(x._2, y._2)\n      })\n  \n  \n  range_values = (max(best._1 - step, min_t), min(best._1 + step, max_t))\n  step = calc_step(range_values, m)\n  thresholds = sc.parallelize(range_values._1 until range_values._2 by step)\n  cnt_iterations = cnt_iterations + 1\n}\n\nval (best_t, best_eval) = best\n\nprintln(\"**********************************************\\n\" +\n        s\"Best threshold is $best_t, giving eval of $best_eval \\n\" +\n        \"**********************************************\"\n       )",
+    "source" : "import math.{max, min}\n\ndef calc_step(range_values : (Double, Double), m : Int) : Double = { (range_values._2 - range_values._1) / m }\ndef end_checks(range_values : (Double, Double)) : Boolean = {\n  //println(s\"Range_values: $range_values | Stop value: $stop_value\")\n  range_values._2 - range_values._1 < stop_value\n}\n\nvar cnt_iterations = 0\nvar range_values = (min_t, max_t)\nvar step = calc_step(range_values, m)\nvar thresholds = sc.parallelize(range_values._1 to range_values._2 by step)\nvar best = (range_values._1, -1.0)\n\nwhile (cnt_iterations < max_nb_iterations && !end_checks(range_values)) {\n  //println(s\"-- Iteration $cnt_iterations --\")\n  \n  val results = thresholds.map{\n    threshold =>\n    val (eval_value, _, _) = apply_CAST(threshold)\n    (threshold, eval_value)\n  }\n  \n  best = results.max()(new Ordering[Tuple2[Double, Double]]() {\n      override def compare(x: (Double, Double), y: (Double, Double)): Int = \n      Ordering[Double].compare(x._2, y._2)\n      })\n  \n  \n  range_values = (max(best._1 - step, min_t), min(best._1 + step, max_t))\n  step = calc_step(range_values, m)\n  thresholds = sc.parallelize(range_values._1 until range_values._2 by step)\n  cnt_iterations = cnt_iterations + 1\n}\n\nval (best_t, best_eval) = best\n\nprintln(\"**********************************************\\n\" +\n        s\"Best threshold is $best_t, giving an external evaluation of $best_eval \\n\" +\n        \"**********************************************\"\n       )\n\nval (eval_value, numClusters, observed_clusters) = apply_CAST(best_t)\n\n//Note that if we wish to only perform a single iteration with fixed threshold, we can keep only this last line.",
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",
-      "text" : "Range_values: (0.05,0.92) | Stop value: 0.01\n-- Iteration 0 --\n(t, RID, nbClusters) = (0.7024999999999998, 0.8599439775910365, 9)\n(t, RID, nbClusters) = (0.1805, 0.2592436974789916, 1)\n(t, RID, nbClusters) = (0.0935, 0.2592436974789916, 1)\n(t, RID, nbClusters) = (0.22399999999999998, 0.2592436974789916, 1)\n(t, RID, nbClusters) = (0.7459999999999998, 0.8599439775910365, 9)\n(t, RID, nbClusters) = (0.4849999999999999, 0.9439775910364145, 4)\n(t, RID, nbClusters) = (0.9199999999999997, 0.8128851540616246, 16)\n(t, RID, nbClusters) = (0.5719999999999998, 0.8865546218487395, 7)\n(t, RID, nbClusters) = (0.3544999999999999, 0.5700280112044818, 2)\n(t, RID, nbClusters) = (0.8329999999999997, 0.8448179271708683, 10)\n(t, RID, nbClusters) = (0.8764999999999997, 0.8445378151260504, 10)\n(t, RID, nbClusters) = (0.05, 0.2592436974789916, 1)\n(t, RID, nbClusters) = (0.4414999999999999, 0.8599439775910365, 4)\n(t, RID, nbClusters) = (0.137, 0.2592436974789916, 1)\n(t, RID, nbClusters) = (0.26749999999999996, 0.5700280112044818, 2)\n(t, RID, nbClusters) = (0.6589999999999998, 0.8599439775910365, 9)\n(t, RID, nbClusters) = (0.5284999999999999, 0.9425770308123249, 6)\n(t, RID, nbClusters) = (0.3979999999999999, 0.7450980392156863, 3)\n(t, RID, nbClusters) = (0.31099999999999994, 0.5700280112044818, 2)\n(t, RID, nbClusters) = (0.6154999999999998, 0.8739495798319328, 8)\n(t, RID, nbClusters) = (0.7894999999999998, 0.8599439775910365, 9)\nRange_values: (0.4414999999999999,0.5284999999999999) | Stop value: 0.01\n-- Iteration 1 --\n(t, RID, nbClusters) = (0.5067500000000001, 0.9159663865546218, 5)\n(t, RID, nbClusters) = (0.5111000000000001, 0.9159663865546218, 5)\n(t, RID, nbClusters) = (0.46325, 0.9439775910364145, 4)\n(t, RID, nbClusters) = (0.4589, 0.9439775910364145, 4)\n(t, RID, nbClusters) = (0.52415, 0.9425770308123249, 6)\n(t, RID, nbClusters) = (0.5024000000000002, 0.8599439775910365, 5)\n(t, RID, nbClusters) = (0.4806500000000001, 0.9439775910364145, 4)\n(t, RID, nbClusters) = (0.4676, 0.9439775910364145, 4)\n(t, RID, nbClusters) = (0.47195000000000004, 0.9439775910364145, 4)\n(t, RID, nbClusters) = (0.5198, 0.9159663865546218, 5)\n(t, RID, nbClusters) = (0.49805000000000016, 0.8599439775910365, 5)\n(t, RID, nbClusters) = (0.47630000000000006, 0.9439775910364145, 4)\n(t, RID, nbClusters) = (0.4414999999999999, 0.8599439775910365, 4)\n(t, RID, nbClusters) = (0.4893500000000001, 0.9439775910364145, 4)\n(t, RID, nbClusters) = (0.4850000000000001, 0.9439775910364145, 4)\n(t, RID, nbClusters) = (0.45019999999999993, 0.8599439775910365, 4)\n(t, RID, nbClusters) = (0.4458499999999999, 0.8599439775910365, 4)\n(t, RID, nbClusters) = (0.45454999999999995, 0.8599439775910365, 4)\n(t, RID, nbClusters) = (0.5154500000000001, 0.9159663865546218, 5)\n(t, RID, nbClusters) = (0.49370000000000014, 0.9439775910364145, 4)\nRange_values: (0.4589,0.4676) | Stop value: 0.01\n**********************************************\nBest threshold is 0.46325, giving eval of 0.9439775910364145 \n**********************************************\nimport math.{max, min}\ncalc_step: (range_values: (Double, Double), m: Int)Double\nend_checks: (range_values: (Double, Double))Boolean\ncnt_iterations: Int = 2\nrange_values: (Double, Double) = (0.4589,0.4676)\nstep: Double = 4.3500000000000206E-4\nthresholds: org.apache.spark.rdd.RDD[Double] = ParallelCollectionRDD[47] at parallelize at <console>:165\nbest: (Double, Double) = (0.46325,0.9439775910364145)\nbest_t: Double = 0.46325\nbest_eval: Double = 0.9439775910364145\n"
+      "text" : "**********************************************\nBest threshold is 0.46325, giving an external evaluation of 0.9439775910364145 \n**********************************************\nimport math.{max, min}\ncalc_step: (range_values: (Double, Double), m: Int)Double\nend_checks: (range_values: (Double, Double))Boolean\ncnt_iterations: Int = 2\nrange_values: (Double, Double) = (0.4589,0.4676)\nstep: Double = 4.3500000000000206E-4\nthresholds: org.apache.spark.rdd.RDD[Double] = ParallelCollectionRDD[50] at parallelize at <console>:187\nbest: (Double, Double) = (0.46325,0.9439775910364145)\nbest_t: Double = 0.46325\nbest_eval: Double = 0.9439775910364145\neval_value: Double = 0.9439775910364145\nnumClusters: Int = 4\nobserved_clusters: scala.collection.mutable.Set[(Int, Int)] = Set((70,1), (33,3), (117,1), (110,1), (31,3), (48,3), (30,3), (15,0), (85,1), (25,3), (45,3), (14,0), (119,2), (58,3), (111,0), (90,0), (71,1), (13,3), (36,3), (37,0), (42,3), (18,3), (115,2), (23,3), (21,3),..."
     }, {
       "metadata" : { },
       "data" : {
-        "text/html" : ""
+        "text/html" : "Set((70,1), (33,3), (117,1), (110,1), (31,3), (48,3), (30,3), (15,0), (85,1), (25,3), (45,3), (14,0), (119,2), (58,3), (111,0), (90,0), (71,1), (13,3), (36,3), (37,0), (42,3), (18,3), (115,2), (23,3), (21,3), (0,0), (75,1), (68,2), (38,3), (5,0), (101,1), (103,1), (29,3), (80,0), (44,3), (10,3), (100,2), (16,3), (98,1), (65,2), (32,0), (78,1), (52,0), (51,3), (93,1), (66,2), (7,0), (12,0), (56,3), (19,0), (82,2), (113,2), (81,1), (60,2), (88,1), (105,1), (91,1), (109,2), (97,2), (104,2), (28,0), (95,1), (2,0), (76,1), (86,0), (118,2), (55,3), (83,1), (53,3), (9,3), (41,0), (102,0), (96,2), (50,0), (84,1), (54,3), (73,0), (94,0), (3,3), (39,3), (47,3), (24,3), (1,3), (114,1), (67,2), (43,3), (6,3), (49,3), (63,2), (74,0), (72,1), (62,2), (22,0), (108,1), (116,0), (107,0), (106,1), (11,0), (92,1), (26,3), (40,0), (17,3), (4,0), (79,1), (34,0), (99,1), (61,2), (64,2), (20,3), (35,3), (87,1), (69,2), (59,3), (89,1), (112,1), (77,2), (27,3), (8,3), (46,3), (57,0))"
       },
       "output_type" : "execute_result",
-      "execution_count" : 20
+      "execution_count" : 35
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : true
+    },
+    "cell_type" : "markdown",
+    "source" : "Plot a visualization of the misclassification of elements after the clustering\n\nNote: Relaunching this section multiple times may cause a \"Task not serializable\" error. Shut the notebook down and try again if that is the case."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val counts_attributions_by_true_label = sc.parallelize(observed_clusters.toSeq).map{\n  case (id, cluster) => (label_by_id.value.apply(id), cluster)\n}.groupByKey.\nmapValues{\n  labels =>\n  val counts = 0 until numClusters\n  counts.map( cluster_id => (cluster_id, labels.count( _ == cluster_id) ))\n}.sortBy(_._1)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "counts_attributions_by_true_label: org.apache.spark.rdd.RDD[(Int, scala.collection.immutable.IndexedSeq[(Int, Int)])] = MapPartitionsRDD[59] at sortBy at <console>:97\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[59] at sortBy at &lt;console&gt;:97"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 36
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import notebook.front.third.wisp._\nimport com.quantifind.charts.highcharts._\nimport com.quantifind.charts.highcharts.Highchart._\n\nval model = counts_attributions_by_true_label.values.map{\n  x =>\n  Pairs(x, \"column\")\n}.collect.toSeq\n\nimport com.quantifind.charts.highcharts.Axis\n\nval names = (0 until numClusters).map{num => \"Cluster \" + num.toString}.toSeq\n\nPlot(\n  model,\n  xCat = Seq(names)\n)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import notebook.front.third.wisp._\nimport com.quantifind.charts.highcharts._\nimport com.quantifind.charts.highcharts.Highchart._\nmodel: Seq[notebook.front.third.wisp.Pairs[Int,Int]] = WrappedArray(Pairs(Vector((0,30), (1,0), (2,0), (3,0)),column,<function1>,<function1>), Pairs(Vector((0,0), (1,0), (2,0), (3,40)),column,<function1>,<function1>), Pairs(Vector((0,0), (1,10), (2,21), (3,0)),column,<function1>,<function1>), Pairs(Vector((0,0), (1,19), (2,0), (3,0)),column,<function1>,<function1>))\nimport com.quantifind.charts.highcharts.Axis\nnames: scala.collection.immutable.Seq[String] = Vector(Cluster 0, Cluster 1, Cluster 2, Cluster 3)\nres7: notebook.front.third.wisp.Plot = <Plot widget>\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anondde28267bcc8f6950e6d45ec81851058&quot;,&quot;dataInit&quot;:[{&quot;series&quot;:[{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:30},{&quot;x&quot;:1,&quot;y&quot;:0},{&quot;x&quot;:2,&quot;y&quot;:0},{&quot;x&quot;:3,&quot;y&quot;:0}],&quot;type&quot;:&quot;column&quot;},{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:0},{&quot;x&quot;:1,&quot;y&quot;:0},{&quot;x&quot;:2,&quot;y&quot;:0},{&quot;x&quot;:3,&quot;y&quot;:40}],&quot;type&quot;:&quot;column&quot;},{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:0},{&quot;x&quot;:1,&quot;y&quot;:10},{&quot;x&quot;:2,&quot;y&quot;:21},{&quot;x&quot;:3,&quot;y&quot;:0}],&quot;type&quot;:&quot;column&quot;},{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:0},{&quot;x&quot;:1,&quot;y&quot;:19},{&quot;x&quot;:2,&quot;y&quot;:0},{&quot;x&quot;:3,&quot;y&quot;:0}],&quot;type&quot;:&quot;column&quot;}],&quot;exporting&quot;:{&quot;filename&quot;:&quot;chart&quot;},&quot;plotOptions&quot;:{&quot;column&quot;:{&quot;turboThreshold&quot;:0}},&quot;credits&quot;:{&quot;href&quot;:&quot;&quot;,&quot;text&quot;:&quot;&quot;},&quot;chart&quot;:{&quot;zoomType&quot;:&quot;xy&quot;},&quot;title&quot;:{&quot;text&quot;:&quot;&quot;},&quot;xAxis&quot;:[{&quot;categories&quot;:[&quot;Cluster 0&quot;,&quot;Cluster 1&quot;,&quot;Cluster 2&quot;,&quot;Cluster 3&quot;],&quot;title&quot;:{&quot;text&quot;:&quot;&quot;}}]}],&quot;genId&quot;:&quot;1681687567&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/wispWrap'], \n      function(playground, _wispWrap) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _wispWrap,\n    \"o\": {\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 37
     } ]
   }, {
     "metadata" : {

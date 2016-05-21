@@ -1,0 +1,335 @@
+{
+  "metadata" : {
+    "name" : "Preprocessing - Alignment of variants (1000G against DDD)",
+    "user_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "auto_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "language_info" : {
+      "name" : "scala",
+      "file_extension" : "scala",
+      "codemirror_mode" : "text/x-scala"
+    },
+    "trusted" : true,
+    "customLocalRepo" : null,
+    "customRepos" : null,
+    "customDeps" : null,
+    "customImports" : null,
+    "customArgs" : null,
+    "customSparkConf" : null
+  },
+  "cells" : [ {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "#Preprocessing: Alignment of variants\n\nThe alignment is necessary for machine learning techniques that compare features vectors, such as K-Means.\n\nThe process is adjusted to the structure of variants annotated with [Highlander](http://sites.uclouvain.be/highlander/) and stored in [Parquet](https://parquet.apache.org/) files.\n\nIt was notably applied to variants from the [1000 Genomes data](http://1000genomes.org/) and [DDD cohort](https://decipher.sanger.ac.uk/ddd#overview)."
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the parameters of the process:\n* the number of patients to consider\n* the reject list of patients we may not want to include\n* the path to the Parquet files containing variants\n* the HDFS address to save the output file to\n* the name of the output file"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val nb_patients = 2\nval reject_list = Array(\"\")\nval pathVariants_1000g = \"/user/hive/warehouse/1000g.db/exomes_1000g\"\nval pathVariants_ddd = \"/user/hive/warehouse/1000g.db/ddd\"\nval ddd_families_path = \"datasets/ddd/ddd3_family_relationships.txt\"\nval hdfs_path = \"hdfs:/user/ndewit/\"\nval output_path = hdfs_path + \"aligned_both_variants\"",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "nb_patients: Int = 2\nreject_list: Array[String] = Array(\"\")\npathVariants_1000g: String = /user/hive/warehouse/1000g.db/exomes_1000g\npathVariants_ddd: String = /user/hive/warehouse/1000g.db/ddd\nddd_families_path: String = datasets/ddd/ddd3_family_relationships.txt\nhdfs_path: String = hdfs:/user/ndewit/\noutput_path: String = hdfs:/user/ndewit/aligned_both_variants\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "hdfs:/user/ndewit/aligned_both_variants"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 32
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Retrieval from database\n\nWe will use SparkSQL to query the variants we need. The library is imported by default in Spark Notebook, but needs to be added to the application's dependencies if the code is transformed into a standalone application.\n\nWe read from Parquet files and make the equivalent of a relational database table to which SQL queries can be addressed. The flag \"binaryAsString\" is set explicitly to avoid compatibility problems with some Parquet-producing systems (Impala, Hive and older versions of SparkSQL do not differentiate between binary data and strings when writing out the Parquet schema)."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val sqlContext = new org.apache.spark.sql.SQLContext(sc)\nsqlContext.sql(\"SET spark.sql.parquet.binaryAsString=true\")\nimport sqlContext.implicits._",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "sqlContext: org.apache.spark.sql.SQLContext = org.apache.spark.sql.SQLContext@3ccddbf2\nimport sqlContext.implicits._\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 33
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "/*\nval gene_list = List(\"datasets/ddd/ASD_genes\",\n                      \"datasets/ddd/DDD_genes\",\n                      \"datasets/ddd/ID_genes\").\nmap(path => sc.textFile(path)).\nreduce(_ union _).\ntoDF(\"gene_list\").\ndistinct\n*/",
+    "outputs" : [ {
+      "ename" : "Error",
+      "output_type" : "error",
+      "traceback" : [ "Incomplete (hint: check the parenthesis)" ]
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "var parquetFile = sqlContext.read.parquet(pathVariants_ddd)\nparquetFile.registerTempTable(\"dddData\")\n\nval source_data = sc.textFile(ddd_families_path)\nval families = source_data.map(_.split('\\t')).filter(_(2) != \"0\").map(x => (x(1), x(2), x(3)))\n\nval children_ids = families.map(_._1)\n\nval patients_id_ddd = children_ids.take(nb_patients)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "parquetFile: org.apache.spark.sql.DataFrame = [id: int, platform: string, outsourcing: string, project_id: int, run_label: string, patient: string, pathology: string, partition: int, sample_type: string, chr: string, pos: int, reference: string, alternative: string, change_type: string, hgvs_protein: string, hgvs_dna: string, gene_symbol: string, exon_intron_rank: int, exon_intron_total: int, cdna_pos: int, cdna_length: int, cds_pos: int, cds_length: int, protein_pos: int, protein_length: int, gene_ensembl: string, num_genes: int, biotype: string, transcript_ensembl: string, transcript_uniprot_id: string, transcript_uniprot_acc: string, transcript_refseq_prot: string, transcript_refseq_mrna: string, dbsnp_id: string, dbsnp_maf: double, unisnp_ids: string, clinvar_rs: string, clinvar_cln..."
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div class=\"container-fluid\"><div><div class=\"col-md-12\"><div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anon8dc861249b2699543b1854a9a419e31e&quot;,&quot;dataInit&quot;:[{&quot;string value&quot;:&quot;DDDP101968&quot;},{&quot;string value&quot;:&quot;DDDP102189&quot;}],&quot;genId&quot;:&quot;511808710&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/magic/tableChart'], \n      function(playground, _magictableChart) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _magictableChart,\n    \"o\": {\"headers\":[\"string value\"],\"nrow\":2,\"shown\":2,\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div></div></div></div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 35
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def make_request_ddd(cols : String) : String = {\n  var request = \"SELECT \" + cols + \" \"\n  request += \"FROM dddData \"\n  request += \"WHERE (\"\n  request += \"filters = 'PASS' \"\n  request += \"AND allele_num <= 2 \"\n  request += \"AND gene_symbol IS NOT NULL \"\n  //request += \"AND consensus_maf < 0.01\"\n  request += \"AND chr = 22\"\n  request += \")\"\n  return request\n}\n\nimport org.apache.spark.sql.functions.lit\n\nval initial_by_patient_ddd = sqlContext.\nsql(make_request_ddd(\"patient, pos, alternative\")).\nwhere($\"patient\".isin(patients_id_ddd.map(lit(_)):_*)).\nwhere(!$\"patient\".isin(reject_list.map(lit(_)):_*)).\n//join(gene_list, $\"gene_symbol\" === $\"gene_list\").\n//drop(\"gene_symbol\").\nmap{ row => (row.getString(0), (row.getInt(1), row.getString(2))) }.\naggregateByKey(scala.collection.mutable.HashSet.empty[(Int, String)])(_+_, _++_).\nmapValues(_.toArray)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "make_request_ddd: (cols: String)String\nimport org.apache.spark.sql.functions.lit\ninitial_by_patient_ddd: org.apache.spark.rdd.RDD[(String, Array[(Int, String)])] = MapPartitionsRDD[302] at mapValues at <console>:115\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[302] at mapValues at &lt;console&gt;:115"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 36
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "As the positions present are not the same in every patient, we also separately query all possible positions that appear in our patients of interest. As we will need to associate that list with all patient rows, we turn it into a single RDD row and perform the cartesian product of it and the list of all patient IDs.\n\nEach element of the resulting RDD thus has both the patient's ID and the complete list of positions it should include."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val all_pos_ddd = sqlContext.\nsql(make_request_ddd(\"patient, pos\")).\nwhere($\"patient\".isin(patients_id_ddd.map(lit(_)):_*)).\nwhere(!$\"patient\".isin(reject_list.map(lit(_)):_*)).\n//join(gene_list, $\"gene_symbol\" === $\"gene_list\").\nselect(\"pos\")",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "all_pos_ddd: org.apache.spark.sql.DataFrame = [pos: int]\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div class=\"df-canvas\">\n      <script data-this=\"{&quot;dataId&quot;:&quot;anon15e306df8372670371205e872b1829e2&quot;,&quot;partitionIndexId&quot;:&quot;anond056862c0550a383a012a525b23b18d2&quot;,&quot;numPartitions&quot;:122,&quot;dfSchema&quot;:{&quot;type&quot;:&quot;struct&quot;,&quot;fields&quot;:[{&quot;name&quot;:&quot;pos&quot;,&quot;type&quot;:&quot;integer&quot;,&quot;nullable&quot;:true,&quot;metadata&quot;:{}}]}}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/dataframe','../javascripts/notebook/consoleDir'], \n      function(dataframe, extension) {\n        dataframe.call(data, this, extension);\n      }\n    );/*]]>*/</script>\n      <link rel=\"stylesheet\" href=\"/assets/stylesheets/ipython/css/dataframe.css\" type=\"text/css\"/>\n    </div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 37
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val parquetFile2 = sqlContext.read.parquet(pathVariants_1000g)\nparquetFile2.registerTempTable(\"thousandGData\")",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "parquetFile2: org.apache.spark.sql.DataFrame = [id: int, platform: string, outsourcing: string, project_id: int, run_label: string, patient: string, pathology: string, partition: int, sample_type: string, chr: string, pos: int, reference: string, alternative: string, change_type: string, hgvs_protein: string, hgvs_dna: string, gene_symbol: string, exon_intron_rank: int, exon_intron_total: int, cdna_pos: int, cdna_length: int, cds_pos: int, cds_length: int, protein_pos: int, protein_length: int, gene_ensembl: string, num_genes: int, biotype: string, transcript_ensembl: string, transcript_uniprot_id: string, transcript_uniprot_acc: string, transcript_refseq_prot: string, transcript_refseq_mrna: string, dbsnp_id: string, dbsnp_maf: double, unisnp_ids: string, clinvar_rs: string, clinvar_cl..."
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 38
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val patients_id_1000G = sqlContext.\nsql(\"SELECT DISTINCT patient FROM thousandGData \" +\n    \"LIMIT \" + nb_patients.toString).\nmap(_.getString(0)).collect",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "patients_id_1000G: Array[String] = Array(HG01242, NA18538)\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div class=\"container-fluid\"><div><div class=\"col-md-12\"><div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anon126f257e4e4faeed87f8769839448dd0&quot;,&quot;dataInit&quot;:[{&quot;string value&quot;:&quot;HG01242&quot;},{&quot;string value&quot;:&quot;NA18538&quot;}],&quot;genId&quot;:&quot;2061719527&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/magic/tableChart'], \n      function(playground, _magictableChart) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _magictableChart,\n    \"o\": {\"headers\":[\"string value\"],\"nrow\":2,\"shown\":2,\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div></div></div></div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 39
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def make_request_1000G(cols : String) : String = {\n  var request = \"SELECT \" + cols + \" \"\n  request += \"FROM thousandGData \"\n  request += \"WHERE (\"\n  request += \"filters = 'PASS' \"\n  request += \"AND allele_num <= 2 \"\n  request += \"AND gene_symbol IS NOT NULL \"\n  //request += \"AND consensus_maf < 0.01\"\n  request += \"AND chr = 22\"\n  request += \")\"\n  return request\n}\n\nimport org.apache.spark.sql.functions.lit\n\nval initial_by_patient_1000G = sqlContext.\nsql(make_request_1000G(\"patient, pos, alternative\")).\nwhere($\"patient\".isin(patients_id_1000G.map(lit(_)):_*)).\nwhere(!$\"patient\".isin(reject_list.map(lit(_)):_*)).\n//join(gene_list, $\"gene_symbol\" === $\"gene_list\").\n//drop(\"gene_symbol\").\nmap{ row => (row.getString(0), (row.getInt(1), row.getString(2))) }.\naggregateByKey(scala.collection.mutable.HashSet.empty[(Int, String)])(_+_, _++_).\nmapValues(_.toArray)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "make_request_1000G: (cols: String)String\nimport org.apache.spark.sql.functions.lit\ninitial_by_patient_1000G: org.apache.spark.rdd.RDD[(String, Array[(Int, String)])] = MapPartitionsRDD[329] at mapValues at <console>:108\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[329] at mapValues at &lt;console&gt;:108"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 40
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val all_pos_1000G = sqlContext.\nsql(make_request_1000G(\"patient, gene_symbol, pos\")).\nwhere($\"patient\".isin(patients_id_1000G.map(lit(_)):_*)).\nwhere(!$\"patient\".isin(reject_list.map(lit(_)):_*)).\n//join(gene_list, $\"gene_symbol\" === $\"gene_list\").\nselect(\"pos\")",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "all_pos_1000G: org.apache.spark.sql.DataFrame = [pos: int]\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div class=\"df-canvas\">\n      <script data-this=\"{&quot;dataId&quot;:&quot;anondac77befd8ae58157f83c0cb4fe9c6dc&quot;,&quot;partitionIndexId&quot;:&quot;anone26157893020524a5d458fbc5344f014&quot;,&quot;numPartitions&quot;:199,&quot;dfSchema&quot;:{&quot;type&quot;:&quot;struct&quot;,&quot;fields&quot;:[{&quot;name&quot;:&quot;pos&quot;,&quot;type&quot;:&quot;integer&quot;,&quot;nullable&quot;:true,&quot;metadata&quot;:{}}]}}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/dataframe','../javascripts/notebook/consoleDir'], \n      function(dataframe, extension) {\n        dataframe.call(data, this, extension);\n      }\n    );/*]]>*/</script>\n      <link rel=\"stylesheet\" href=\"/assets/stylesheets/ipython/css/dataframe.css\" type=\"text/css\"/>\n    </div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 41
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val all_pos = all_pos_ddd.unionAll(all_pos_1000G).\ndistinct.\nmap(_.getInt(0)).map((0, _)).\ngroupByKey.map(_._2).map(_.toArray)\n\nval patients_id = patients_id_ddd ++ patients_id_1000G\n\nval initial_by_patient = initial_by_patient_1000G.union(initial_by_patient_ddd)\n\nval all_pos_per_patient = sc.parallelize(patients_id).cartesian(all_pos)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "all_pos: org.apache.spark.rdd.RDD[Array[Int]] = MapPartitionsRDD[353] at map at <console>:140\npatients_id: Array[String] = Array(DDDP101968, DDDP102189, HG01242, NA18538)\ninitial_by_patient: org.apache.spark.rdd.RDD[(String, Array[(Int, String)])] = UnionRDD[354] at union at <console>:144\nall_pos_per_patient: org.apache.spark.rdd.RDD[(String, Array[Int])] = CartesianRDD[356] at cartesian at <console>:146\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "CartesianRDD[356] at cartesian at &lt;console&gt;:146"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 42
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Alignment\n\nWe now produce the alignment in a couple of steps. We join the list of all variants to the list of variants each patient has, and for each of them:\n* We generate 1-of-k encoding for reference positions (which did not appear amongst the variants of the patient). *flatMap* is used to allow the mapping of 1 to 4 elements (from one position to four corresponding categories).\n* We generate 1-of-k encoding for the variants found in the variant, (only alternate unique nucleotides \"A\", \"C\", \"T\", \"G\" are considered, so point mutations exclusively ; CNVs are ignored in this method)\n* Note that it might be the case that multiple alleles correspond to a single position, which could could a problematic shift in the alignment. We thus make sure to only keep the first variant for the position.\n* We join both lists (mutated and reference variants) and order their content based on the variants positions. Once they are aligned, we can safely discard the positions and keep only the ordered features.\n* We convert the Array of features to a Vector to be used by machine learning techniques."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val samples = initial_by_patient.join(all_pos_per_patient).map{\n\n  case (patient, (features, all_pos)) =>\n\n  val pos = features.map(_._1) //list of positions present in the patient\n\n  val not_appearing = all_pos.filter(!pos.contains(_)). //for all positions not appearing in the patient\n  flatMap{\n    int_pos =>\n    val pos = BigDecimal(int_pos)\n    Array((pos + BigDecimal(0.1), 0.0),\n          (pos + BigDecimal(0.2), 0.0),\n          (pos + BigDecimal(0.3), 0.0),\n          (pos + BigDecimal(0.4), 0.0)\n         ).toList\n    //We add the four nucleotides as zeros\n  }\n\n  var features_four = features.flatMap{\n    case (int_pos, alt) =>\n    val pos = int_pos\n    var a = 0.0\n    var c = 0.0\n    var t = 0.0\n    var g = 0.0\n    if (alt == \"A\") { a = 1.0 }\n    else if (alt == \"C\") { c = 1.0 }\n    else if (alt == \"T\") { t = 1.0 }\n    else if (alt == \"G\") { g = 1.0 }\n\n    Array (\n      (pos + BigDecimal(0.1), a), \n      (pos + BigDecimal(0.2), c), \n      (pos + BigDecimal(0.3), t), \n      (pos + BigDecimal(0.4), g)\n    ).toList\n  }\n\n  //Manipulation to avoid multiple alleles for one position: group variants by common position,\n  //take only the first element of each resulting list (a rare but possible occurrece)\n  features_four = features_four.groupBy(_._1).map{ case (pos, list) => (pos, list.apply(0)._2)}.toArray\n\n  //Join both lists, order them by growing position and discard the positions to keep only the created features\n  val ordered_array = features_four.union(not_appearing).sortBy(_._1).map(_._2)\n\n  (patient, ordered_array)\n}.map{\n  case (patient, features) =>\n  (patient, org.apache.spark.mllib.linalg.Vectors.dense(features))\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "samples: org.apache.spark.rdd.RDD[(String, org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[361] at map at <console>:161\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[361] at map at &lt;console&gt;:161"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 43
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "Similarly as before, we can check the length of the alignments by collecting them to the driver."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "/*\n//Size = Alignment of all positions * 4 possible values for each\nsamples.mapValues(_.size).collect.foreach{\n  e =>\n  println(\"Size of alignment for patient \" + e._1 + \": \" + e._2) \n}\n*/",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "Size of alignment for patient DDDP102189: 18008\nSize of alignment for patient DDDP101968: 18008\nSize of alignment for patient NA18538: 18008\nSize of alignment for patient HG01242: 18008\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 44
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Save result\n\nFinally, we save our result as distributed files on the cluster. As the method fails if a file or folder with the same name exists, we first perform a recursive deletion of any conflicting element."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.hadoop.fs._\nimport java.net.URI\nval fs:FileSystem = FileSystem.get(new URI(output_path), sc.hadoopConfiguration)\nfs.delete(new Path(output_path), true) // \"True\" to activate recursive deletion of files if it is a folder\n\nsamples.saveAsObjectFile(output_path)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.hadoop.fs._\nimport java.net.URI\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_1873018683_100, ugi=ndewit (auth:SIMPLE)]]\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 45
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "",
+    "outputs" : [ {
+      "ename" : "Error",
+      "output_type" : "error",
+      "traceback" : [ "Incomplete (hint: check the parenthesis)" ]
+    } ]
+  } ],
+  "nbformat" : 4
+}

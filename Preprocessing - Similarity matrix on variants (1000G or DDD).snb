@@ -1,0 +1,283 @@
+{
+  "metadata" : {
+    "name" : "Preprocessing - Similarity matrix on variants (1000G or DDD)",
+    "user_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "auto_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "language_info" : {
+      "name" : "scala",
+      "file_extension" : "scala",
+      "codemirror_mode" : "text/x-scala"
+    },
+    "trusted" : true,
+    "customLocalRepo" : null,
+    "customRepos" : null,
+    "customDeps" : null,
+    "customImports" : null,
+    "customArgs" : null,
+    "customSparkConf" : null
+  },
+  "cells" : [ {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "#Preprocessing: Similarity matrix on variants\n\nThis matrix is necessary for machine learning techniques such as CAST.\n\nThe process is adjusted to the structure of variants annotated with [Highlander](http://sites.uclouvain.be/highlander/) and stored in [Parquet](https://parquet.apache.org/) files.\n\nIt was notably applied to variants from the [1000 Genomes data](http://1000genomes.org/) and [DDD cohort](https://decipher.sanger.ac.uk/ddd#overview)."
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the parameters of the process:\n* the number of patients to consider\n* the reject list of patients we may not want to include\n* the path to the Parquet files containing variants\n* the HDFS address to save the output file to\n* the name of the output file\n* the number of partitions to reduce the matrix to for further processing (typically the number of cores used)"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val nb_patients = 3\nval reject_list = Array(\"\")\nval pathVariants = \"/user/hive/warehouse/1000g.db/exomes_1000g\" //or \"/user/hive/warehouse/1000g.db/ddd\"\nval output_path = \"hdfs:/user/ndewit/\"\nval output_name =  \"CASTUtils_1000G_variants\"\nval nb_partitions = 10\n//In standalone application, we can automatically set it to conf.get(\"spark.default.parallelism\").toInt",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "nb_patients: Int = 3\nreject_list: Array[String] = Array(\"\")\npathVariants: String = /user/hive/warehouse/1000g.db/exomes_1000g\noutput_path: String = hdfs:/user/ndewit/\noutput_name: String = CASTUtils_1000G_variants\nnb_partitions: Int = 10\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "10"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 1
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Retrieval from database\n\nWe will use SparkSQL to query the variants we need. The library is imported by default in Spark Notebook, but needs to be added to the application's dependencies if the code is transformed into a standalone application.\n\nWe read from Parquet files and make the equivalent of a relational database table to which SQL queries can be addressed. The flag \"binaryAsString\" is set explicitly to avoid compatibility problems with some Parquet-producing systems (Impala, Hive and older versions of SparkSQL do not differentiate between binary data and strings when writing out the Parquet schema)."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val sqlContext = new org.apache.spark.sql.SQLContext(sc)\nsqlContext.sql(\"SET spark.sql.parquet.binaryAsString=true\")\nimport sqlContext.implicits._\n\nval parquetFile = sqlContext.read.parquet(pathVariants)\nparquetFile.registerTempTable(\"variantData\")",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "sqlContext: org.apache.spark.sql.SQLContext = org.apache.spark.sql.SQLContext@4ae945c0\nimport sqlContext.implicits._\nparquetFile: org.apache.spark.sql.DataFrame = [id: int, platform: string, outsourcing: string, project_id: int, run_label: string, patient: string, pathology: string, partition: int, sample_type: string, chr: string, pos: int, reference: string, alternative: string, change_type: string, hgvs_protein: string, hgvs_dna: string, gene_symbol: string, exon_intron_rank: int, exon_intron_total: int, cdna_pos: int, cdna_length: int, cds_pos: int, cds_length: int, protein_pos: int, protein_length: int, gene_ensembl: string, num_genes: int, biotype: string, transcript_ensembl: string, transcript_uniprot_id: string, transcript_uniprot_acc: string, transcript_refseq_prot: string, tra..."
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 2
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "This step differs depending on the cohort used.\n\n1000G : We use that table to get a list of distinct patients IDs, limiting it to the number of patients we wish to work on. The *sql()* method of SQLContext allows to use SQL syntax to do so.\n\nDDD : We cannot take patients directly from the database, as we do not know which DDD patients are affected children and which are parent controls. To select appropriate IDs, we thus need to go through the file describing family relationships."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "//For 1000G\nval patients_id = sqlContext.\nsql(\"SELECT DISTINCT patient FROM variantData \" +\n    \" LIMIT \" + nb_patients.toString).\nmap(_.getString(0)).collect\n\n\n//Alternatively, for DDD\n/*\nval base_path = \"datasets/ddd/\"\nval sourceFile = base_path + \"ddd3_family_relationships.txt\" // + cache if dataset big\nval source_data = sc.textFile(sourceFile)\nval families = source_data.map(_.split('\\t')).filter(_(2) != \"0\").map(x => (x(1), x(2), x(3)))\nval patients_id = families.map(_._1).take(nb_patients)\n*/",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "patients_id: Array[String] = Array(HG01242, NA18538, NA20878)\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div class=\"container-fluid\"><div><div class=\"col-md-12\"><div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anona7055b964419ee023e4a40ed7c1c0606&quot;,&quot;dataInit&quot;:[{&quot;string value&quot;:&quot;HG01242&quot;},{&quot;string value&quot;:&quot;NA18538&quot;},{&quot;string value&quot;:&quot;NA20878&quot;}],&quot;genId&quot;:&quot;191032384&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/magic/tableChart'], \n      function(playground, _magictableChart) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _magictableChart,\n    \"o\": {\"headers\":[\"string value\"],\"nrow\":3,\"shown\":3,\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div></div></div></div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 3
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : true
+    },
+    "cell_type" : "code",
+    "source" : "/*\nval gene_list = List(\"datasets/ddd/ASD_genes\",\n                      \"datasets/ddd/DDD_genes\",\n                      \"datasets/ddd/ID_genes\").\nmap(path => sc.textFile(path)).\nreduce(_ union _).\ntoDF(\"gene_list\").\ndistinct\n*/",
+    "outputs" : [ ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We query variants for these patients based on the criteria of our choice: quality filters, allele number, presence in a given chromosome, minor allele frequency..\n\nWe will here get the content of the variants themselves, i.e. the individual alleles and their position, limiting ourselves to the 22nd chromosome.\n\nIf the list of patients is very long, we cannot just add them to the original SQL query, since a \"WHERE\" clause of hundreds of elements causes a StackOverflow error. We thus first apply our SQL query regardless of our patients selection, get a DataFrame in return, and only then use the *where()* method which filters elements based on the column(s) of our choice. We can then *map* our list of accepted patients to another column of literal values through the *lit()* function, and check the membership of elements from the first in the second via the *isin()* method.\nA similar technique is applied to filter out patients listed in the reject list.\n\nOnce the filtering is done, we can extract the content of the remaining lines. By default, the content of each column in a DataFrame is a String, but we can convert it to the type needed (this line is where the processing gets long since it is the point where the data is extracted in practice).\n\nFinally, we need to group the variants based on their associated patients to get an initial patients representation. A *groupByKey* function exists in Spark, but is known to create an overhead of shuffling operations. Instead, we use *aggregateByKey* which groups elements locally before merging the formed groups amongst remote partitions.\nBy default this operation returns a RDD of Iterables (containing the different variants as tuples of form (Position, Allele)), which we convert to an Array for more flexibility in the subsequent operations."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def make_request(cols : String) : String = {\n  var request = \"SELECT \" + cols + \" \"\n  request += \"FROM variantData \"\n  request += \"WHERE (\"\n  request += \"filters = 'PASS' \"\n  request += \"AND allele_num <= 2 \"\n  request += \"AND gene_symbol IS NOT NULL \"\n  //request += \"AND consensus_maf < 0.01 \"\n  request += \"AND chr = 22 \"\n  request += \")\"\n  return request\n}\n\nimport org.apache.spark.sql.functions.lit\n\nval initial_by_patient = sqlContext.\nsql(make_request(\"patient, pos, alternative\")).\nwhere($\"patient\".isin(patients_id.map(lit(_)):_*)).\nwhere(!$\"patient\".isin(reject_list.map(lit(_)):_*)).\n//join(gene_list, $\"gene_symbol\" === $\"gene_list\").\n//drop(\"gene_symbol\").\nmap{ row => (row.getString(0), (row.getInt(1), row.getString(2))) }.\ndistinct.\naggregateByKey(scala.collection.mutable.HashSet.empty[(Int, String)])(_+_, _++_).\nmapValues(_.toArray)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "make_request: (cols: String)String\nimport org.apache.spark.sql.functions.lit\ninitial_by_patient: org.apache.spark.rdd.RDD[(String, Array[(Int, String)])] = MapPartitionsRDD[23] at mapValues at <console>:80\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[23] at mapValues at &lt;console&gt;:80"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 4
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Element definition\n\nWe use a custom sclass to represent elements to be clustered. Note that all elements inside the closure of a distributed function are serialized before getting sent to worker nodes: our class must thus extend Java's Serializable class.\n\nWe keep both the element's attributed index (used as index in the matrix) and patient name (later used to retrieve the patient's associated phenotype). As we work with variants themselves, our features have the form (Position:Int, Allele:String)"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "class C_Element(id: Int, name: String, features: Array[(Int, String)]) extends Serializable {\n  val _id : Int = id\n  val _name : String = name\n  val _features : Array[(Int, String)] = features\n\n  def getId() : Int = {\n    val id = _id\n    return id\n  }\n\n  def getFeatures() : Array[(Int, String)] = {\n    val features = _features\n    return features\n  }\n\n  def getName() : String = {\n    val name = _name\n    return name\n  }\n\n  override def toString(): String = {\n    val id = _id\n    val name = _name\n    \"Element \" + id + \" (\" + name + \")\"\n  }\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "defined class C_Element\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 5
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We create U, the set of all elements that will be clustered. This is where we attribute a numerical index to each of them and transform them into C_Elements. As we will need multiple passes over this set in future operations, we cache the created structure."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "var U = initial_by_patient.zipWithIndex.map{x => new C_Element(x._2.toInt, x._1._1, x._1._2) }.persist\n\nval nb_elements = U.count",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "U: org.apache.spark.rdd.RDD[C_Element] = MapPartitionsRDD[25] at map at <console>:64\nnb_elements: Long = 3\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "3"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 6
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Matrix construction\n\nWe define our different distance functions, along with a way to compare the alleles directly: in our case, we will simply use a boolean function to check whether the given alleles are identical. A more advanced technique would be to use weight based on the exact point mutation case (using a PAM matrix or similar)."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import math.{sqrt, pow}\n\ndef compare_variants(v1: String, v2: String) = {\n  if (v1 == v2) { 0 }\n  else { 1 }\n}\n\ndef euclidean_distance(e1: Array[String], e2: Array[String]) = {\n  sqrt((e1 zip e2).map{ case (v1, v2) => pow(compare_variants(v1, v2), 2) }.sum)\n}\n\ndef manhattan_distance(e1: Array[String], e2: Array[String]) = {\n  (e1 zip e2).map{ case (v1, v2) => compare_variants(v1, v2) }.sum\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import math.{sqrt, pow}\ncompare_variants: (v1: String, v2: String)Int\neuclidean_distance: (e1: Array[String], e2: Array[String])Double\nmanhattan_distance: (e1: Array[String], e2: Array[String])Int\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 7
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "The way to handle distributed lookup matrix in Spark is still an heavily discussed subject. RDDs being by definition unordered, we need to keep the indices explicitly stored with our values, under the form (ID1, (ID2, Value)) that is compliant with the definition of PairRDDs.\n\nThe matrix itself is created by performing the cartesian product of the set of elements with itself as to obtain all possible (ID1, ID2) pairs and to map them to a trio containing the distance between them.\n\nAs we only have the /variants/ for each patient, comparing them efficiently is difficult. We thus first align the two sequences of variants present in at least one of the two patients, by adding a mock reference allele when a position does not appear amongst the other's variants.\n\nImportantly, we normalize the calculated distance by the total length of the alignment, to avoid cases where patients of African ancestry which have more variants getting a lower similarity between themselves than two Europeans between themselves, even if both pairs have the same mutation rate."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "// Make a complete alignment of variants for both patients based on their respective variants\ndef match_features_to_array(e1: Array[(Int, String)], e2: Array[(Int, String)]) : (Array[String], Array[String]) = {\n\n  val features_1 = e1\n  val features_2 = e2\n\n  val pos_1 = features_1.map(_._1).distinct\n  val pos_2 = features_2.map(_._1).distinct\n\n  //List all positions not appearing as REF\n  val in_one_and_not_in_two = pos_1.filter(!pos_2.contains(_)).map( x => (x, \"REF\") )\n  val in_two_and_not_in_one = pos_2.filter(!pos_1.contains(_)).map( x => (x, \"REF\") )\n\n  //Add them and sort all and keep only the symbol\n  var complete_1 = features_1.union(in_two_and_not_in_one).sortBy(_._1).map(_._2)\n  var complete_2 = features_2.union(in_one_and_not_in_two).sortBy(_._1).map(_._2)\n\n  (complete_1, complete_2)\n}\n\n// Create the unscaled matrix of similarity (by calculating the distance between elements and inverting it)\nval raw_S = U.cartesian(U).map{\n  \n  case (e1, e2) =>\n    if (e1.getId == e2.getId) {\n      (e1.getId) -> (e2.getId, 0.0) //Identity case\n    }\n\n    else {\n      val arrays = match_features_to_array(e1.getFeatures, e2.getFeatures)\n      val sz = arrays._1.length\n      (e1.getId) -> (e2.getId, -manhattan_distance(arrays._1, arrays._2).toDouble/sz)\n    }\n}.persist",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "match_features_to_array: (e1: Array[(Int, String)], e2: Array[(Int, String)])(Array[String], Array[String])\nraw_S: org.apache.spark.rdd.RDD[(Int, (Int, Double))] = MapPartitionsRDD[27] at map at <console>:92\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[27] at map at &lt;console&gt;:92"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 8
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Matrix scaling\n\nWe scale all values of the matrix to the range [0,1] in order to make a proper similarity matrix.\n\nWe find the minimal/maximal values of the matrix by using a min() function with a defined an ordering function that is adapted to the matrix structure. As each element of our matrix has the form (Int, (Int, Double)) with the two indices and the calculated distance, we have to explicitly specify that the value we want compared is the Double.\n\nThe matrix having been created by a *cartesian()* operation, the number of partitions composing it can be very high. Incidentally, that number can have a high influence on the performance (more network-related delay if it is too high, too much workload if too low). We thus reduce it if necessary to exactly the level of parallelism in the process.\n\nNote: We work with the assumption that having the most different elements of our set in different clusters is desirable no matter what. Without this assumption, the lower bound for normalization could be taken differently.\n\nNote bis: As we calculated the distance between elements and inverted all values to create the matrix, the higher bound in distance values is simply 0 (for identical elements being compared). However, for samples made of genetic data, even extremely similar individuals (close relatives,...) will have a high distance between them, so classic normalization will give a scale with all values packed around overly low scores except for the identity cases and their similarity score of 1. To avoid this, we can purposefully pick the most similar non-identical pair as higher bound for normalization, in order to get a more representative scale of values."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "//1) Find the min and max of the matrix\nval minKey2 = raw_S.min()(new Ordering[Tuple2[Int, Tuple2[Int, Double]]]() {\n  override def compare(x: (Int, (Int, Double)), y: (Int, (Int, Double))): Int = \n      Ordering[Double].compare(x._2._2, y._2._2)\n})\n\nval maxKey2 = 0.0\n\nprintln(\"max:\" + maxKey2 + \" ; min:\" + minKey2)\n\n//2) Prepare scaler to [-1,0]\nval std_scaler = - minKey2._2._2\n\n//3) Map the matrix to the scaled results, and shift values by 1 to reach the [0,1] range\nval S = raw_S.mapValues{ case (id, x) => (id, x/std_scaler + 1.0) }.coalesce(nb_partitions)\n\n//Alternatively, if we wish to reduce the range of values to consider:\n/*\nval maxKey2 = raw_S.max()(new Ordering[Tuple2[Int, Tuple2[Int, Double]]]() {\n  override def compare(x: (Int, (Int, Double)), y: (Int, (Int, Double))): Int = \n  if (x._2._2 == 0 && y._2._2 == 0) { 0 }\n  else if (x._2._2 == 0) { -1 } // If x is 0, we ignore it (and thus declare y bigger)\n  else if (y._2._2 == 0) { 1 } // If y is 0, we declare x bigger\n  else { Ordering[Double].compare(x._2._2, y._2._2) }\n})\n\n//We add a small value to the max as not to have the most similar pair have /exactly/ a similarity of 1\nval std_scaler = (maxKey2._2._2 + 0.0001) - minKey2._2._2\n\nval S = raw_S.map{\n  case (id1, (id2, x)) =>\n  if (id1 == id2) { (id1, id2, 1) }\n  else {  (id1, (id2, (x - minKey2._2._2)/std_scaler)) }\n}.coalesce(nb_partitions)\n*/",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "max:0.0 ; min:(1,(2,-0.6324739440482721))\nminKey2: (Int, (Int, Double)) = (1,(2,-0.6324739440482721))\nmaxKey2: Double = 0.0\nstd_scaler: Double = 0.6324739440482721\nS: org.apache.spark.rdd.RDD[(Int, (Int, Double))] = CoalescedRDD[29] at coalesce at <console>:91\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "CoalescedRDD[29] at coalesce at &lt;console&gt;:91"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 11
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Save results\n\nFinally, we save our result as distributed files on the cluster. As the method fails if a file or folder with the same name exists, we first perform a recursive deletion of any conflicting element.\n\nWe save both the matrix (S) itself and the (Patient ID, Patient name) association (U) used in it."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.hadoop.fs._\nimport java.net.URI\n\nvar fs:FileSystem = FileSystem.get(new URI(output_path + output_name + \"_S\"), sc.hadoopConfiguration)\nfs.delete(new Path(output_path + output_name + \"_S\"), true) // \"True\" to activate recursive deletion of files if it is a folder\nS.saveAsObjectFile(output_path + output_name + \"_S\")\n\nfs = FileSystem.get(new URI(output_path + output_name + \"_U\"), sc.hadoopConfiguration)\nfs.delete(new Path(output_path + output_name + \"_U\"), true)\nU.map{e => (e.getId, e.getName)}.saveAsObjectFile(output_path + output_name + \"_U\")",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.hadoop.fs._\nimport java.net.URI\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_-1454786676_9, ugi=ndewit (auth:SIMPLE)]]\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_-1454786676_9, ugi=ndewit (auth:SIMPLE)]]\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 12
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : true
+    },
+    "cell_type" : "code",
+    "source" : "",
+    "outputs" : [ ]
+  } ],
+  "nbformat" : 4
+}
