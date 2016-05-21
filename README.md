@@ -1,4 +1,4 @@
-#Cluster analysis of genetic variants and metadata with Spark
+#Cluster analysis of genetic factors with Spark
 
 ##Overview
 
@@ -14,7 +14,7 @@ As Scala Spark code can be very dense with its pipelined operations, complete do
 
 This repository thus contains the notebooks corresponding to the application of each algorithm to these datasets, using different representations.
 
-*Note that the DBSCAN approach was forked from [https://github.com/irvingc/dbscan-on-spark], which was made available by Irving Cordova under the Apache 2.0 license. Originally limited to two-dimensional input data, the algorithm was refactored, extended to the handling of multiple dimensions, and of labeled data. Due to the original source of this approach, the code is available as a Scala package rather than a Notebook.*
+*Note that the DBSCAN approach was forked from [this repository](https://github.com/irvingc/dbscan-on-spark), which was made available by Irving Cordova under the Apache 2.0 license. Originally limited to two-dimensional input data, the algorithm was refactored, extended to the handling of multiple dimensions, and of labeled data. Due to the original source of this approach, the code is available as a Scala package rather than a Notebook.*
 
 ##Notebooks
 
