@@ -1,0 +1,394 @@
+{
+  "metadata" : {
+    "name" : "CAST (Acute Inflammations) - single iteration",
+    "user_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "auto_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "language_info" : {
+      "name" : "scala",
+      "file_extension" : "scala",
+      "codemirror_mode" : "text/x-scala"
+    },
+    "trusted" : true,
+    "customLocalRepo" : null,
+    "customRepos" : null,
+    "customDeps" : null,
+    "customImports" : null,
+    "customArgs" : null,
+    "customSparkConf" : null
+  },
+  "cells" : [ {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "#Clustering: CAST\n\nClustering applied to the [Acute inflammations dataset](https://archive.ics.uci.edu/ml/datasets/Acute+Inflammations) (UCI). As the dataset is not of large size, no separate preprocessing is necessary."
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the parameters of the process:\n* the number of patients to consider\n* the path to the input file\n* the affinity threshold to use during the clustering"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val nb_patients = 1000\nval input_path = \"datasets/acute_inflammations/data\"\nval threshold = 0.47",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "nb_patients: Int = 1000\ninput_path: String = datasets/acute_inflammations/data\nnb_min_phenotypes: Int = 1\nnb_cores: Int = 50\nthreshold: Double = 0.47\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "0.47"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 20
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Retrieval from database\n\nWe start by cleaning the data and making each row of the RDD into a feature vector. We thus convert from String to the desired types, and encode values of type \"yes/no\" into numerical booleans."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val raw_data = sc.parallelize(sc.textFile(input_path).take(nb_patients))\n\nimport org.apache.spark.mllib.linalg.Vectors\n\nval elements = raw_data.map{\n  case line => \n  \n  val split = line.split('\\t')\n                            \n  val temperature = split(0).toDouble\n  val others = split.slice(1, 6).map{ v => if (v == \"no\") 0.0 else 1.0 }   \n  val res = Array(temperature) ++ others\n                            \n  val decisions = split.takeRight(2)\n  var label = 0\n  if (decisions(0) == \"no\" && decisions(1) == \"no\") {\n    label = 0 //\"neither\"\n  } else if (decisions(0) == \"yes\" && decisions(1) == \"no\") {\n    label = 1 //\"inflammation\"\n  } else if (decisions(0) == \"no\" && decisions(1) == \"yes\") {\n    label = 2 // \"nephretis\"\n  } else {\n    label = 3 //\"both\"\n  }\n  \n  (label, Vectors.dense(res))\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "raw_data: org.apache.spark.rdd.RDD[String] = ParallelCollectionRDD[22] at parallelize at <console>:69\nimport org.apache.spark.mllib.linalg.Vectors\nelements: org.apache.spark.rdd.RDD[(Int, org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[23] at map at <console>:73\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[23] at map at &lt;console&gt;:73"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 21
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We perform standardization of the features for more accurate machine learning processing."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.spark.mllib.feature.StandardScaler\n\nval stdscaler = new StandardScaler(withMean = true, withStd = true).fit(elements.values)\n\nval samples = elements.mapValues{ stdscaler.transform(_).toArray }.persist\n\nval nb_elements = samples.count.toInt",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.spark.mllib.feature.StandardScaler\nstdscaler: org.apache.spark.mllib.feature.StandardScalerModel = org.apache.spark.mllib.feature.StandardScalerModel@d87c5e5\nsamples: org.apache.spark.rdd.RDD[(Int, Array[Double])] = MapPartitionsRDD[35] at mapValues at <console>:84\nnb_elements: Int = 120\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "120"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 37
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Preprocessing"
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "###Element definition\n\nWe use a custom sclass to represent elements to be clustered. Note that all elements inside the closure of a distributed function are serialized before getting sent to worker nodes: our class must thus extend Java's Serializable class.\n\nWe keep both the element's attributed index (used as index in the matrix) and associated phenotype."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "class C_Element(id:Int, features: Array[Double], label: Int) extends Serializable {\n  val _id = id\n  val _features : Array[Double] = features\n  val _label : Int = label\n  \n  def getLabel() : Int = {\n    val label = _label\n    return label\n  }\n  \n  def getId() : Int = {\n    val id = _id\n    return id\n  }\n  \n  def getFeatures() : Array[Double] = {\n    val features = _features\n    return features\n  }\n  \n  override def toString(): String = {\n    val id = _id\n    \"Element \" + id // + \" (Class \" + label + \")\"\n  } \n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "defined class C_Element\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 38
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We create U, the set of all elements that will be clustered. This is where we attribute a numerical index to each of them and transform them into C_Elements. As we will need multiple passes over this set in future operations, we cache the created structure."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "var U = samples.zipWithIndex.map{x => new C_Element(x._2.toInt, x._1._2, x._1._1) }.persist",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "U: org.apache.spark.rdd.RDD[C_Element] = MapPartitionsRDD[37] at map at <console>:82\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[37] at map at &lt;console&gt;:82"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 39
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "###Matrix construction\n\nWe define our different distance functions, along with a way to compare the alleles directly: in our case, we will simply use a boolean function to check whether the given alleles are identical. A more advanced technique would be to use weight based on the exact point mutation case (using a PAM matrix or similar)."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import math.{sqrt, pow}\n\ndef euclidean_distance(e1: Array[Double], e2: Array[Double]) = {\n  sqrt((e1 zip e2).map{ case (v1, v2) => pow(v1 - v2, 2) }.sum)\n}\n\ndef manhattan_distance(e1: Array[Double], e2: Array[Double]) = {\n  (e1 zip e2).map{ case (v1, v2) => v1 - v2 }.sum\n}\n\nimport breeze.linalg._\nimport breeze.stats._\n\ndef pearson(a: Vector[Double], b: Vector[Double]): Double = {\n\n  if (a.length != b.length)\n    throw new IllegalArgumentException(\"Vectors not of the same length.\")\n\n  val n = a.length\n\n  val dot = a.dot(b) //Dot product: sum (a_i*b_i)\n  val adot = a.dot(a)\n  val bdot = b.dot(b)\n  val amean = mean(a)\n  val bmean = mean(b)\n\n  (dot - n * amean * bmean ) / ( sqrt(adot - n * amean * amean)  * sqrt(bdot - n * bmean * bmean) )\n}\n\n/*\nUse of domain knowledge to design a custom distance function.\n\n Acute inflammation of urinary bladder is\ncharacterised by sudden occurrence of pains in the abdomen region and \nthe urination in form of constant urine pushing, micturition pains and \nsometimes lack of urine keeping. Temperature of the body is rising, \nhowever most often not above 38C. The excreted urine is turbid and \nsometimes bloody. At proper treatment, symptoms decay usually within \nseveral days. However, there is inclination to returns. At persons with \nacute inflammation of urinary bladder, we should expect that the illness \nwill turn into protracted form.\n=> inflammation = <38 | no (nausea) | no (lumbar) | yes (urine pushing) | x | x\n\nAcute nephritis of renal pelvis origin occurs considerably more often at \nwomen than at men. It begins with sudden fever, which reaches, and \nsometimes exceeds 40C. The fever is accompanied by shivers and one- or \nboth-side lumbar pains, which are sometimes very strong. Symptoms of \nacute inflammation of urinary bladder appear very often. Quite not \ninfrequently there are nausea and vomiting and spread pains of whole \nabdomen.\n=> nephretis = 40 | yes (nausea) | yes (lumbar) | no (urine pushing) | x | x\n*/\n\ndef custom_distance(e1: Array[Double], e2: Array[Double]) = {\n  val duos = e1 zip e2\n\n  val tmp_score = pow(duos(0)._1 - duos(0)._2, 2)*1\n  val nausea_score = pow(duos(1)._1 - duos(1)._2, 2)*1\n  val lumbar_score = pow(duos(2)._1 - duos(2)._2, 2)*1\n  val pushing_score = pow(duos(3)._1 - duos(3)._2, 2)*1\n  val mictu_score = pow(duos(4)._1 - duos(4)._2, 2)*1\n  val burning_score = pow(duos(5)._1 - duos(5)._2, 2)*1\n  \n  val eps = 0.1\n  \n  //Since for \"neither\" we never have nausea or pushing\n  //if ((nausea_score < eps && duos(1)._1 < 0) && (pushing_score < eps && duos(3)._1 < 0)) { 0 }\n  \n  //Since for \"nephrethis\" we can have features as diverse as \"g no yes yes no yes\" vs \"w yes yes no yes no\"\n  //=> for this case, lumbar is always positive, the others as difference\n  //BUT difference in temperature is under 2.5 (because larger than that and we integrate some \"neither\" cases too)\n  if ((lumbar_score < eps && duos(2)._1 > 0) && (nausea_score > eps && pushing_score > eps && tmp_score < 2.5*3)) { 0 }\n  else { sqrt(tmp_score + nausea_score + lumbar_score + pushing_score + mictu_score + burning_score) }\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import math.{sqrt, pow}\neuclidean_distance: (e1: Array[Double], e2: Array[Double])Double\nmanhattan_distance: (e1: Array[Double], e2: Array[Double])Double\nimport breeze.linalg._\nimport breeze.stats._\npearson: (a: breeze.linalg.Vector[Double], b: breeze.linalg.Vector[Double])Double\ncustom_distance: (e1: Array[Double], e2: Array[Double])Double\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 40
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "The way to handle distributed lookup matrix in Spark is still an heavily discussed subject. RDDs being by definition unordered, we need to keep the indices explicitly stored with our values, under the form (ID1, (ID2, Value)) that is compliant with the definition of PairRDDs.\n\nThe matrix itself is created by performing the cartesian product of the set of elements with itself as to obtain all possible (ID1, ID2) pairs and to map them to a trio containing the distance between them."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val raw_S = U.cartesian(U).map{\n  case (e1, e2) =>\n    if (e1.getId == e2.getId) {\n      (e1.getId) -> (e2.getId, 0.0)\n    }\n    else {\n      (e1.getId)->\n      (e2.getId, -euclidean_distance(e1.getFeatures, e2.getFeatures))\n      //To use Pearson correlation, replace the distance function by the following (so that max correlation is 0):\n      //pearson(new breeze.linalg.DenseVector(e1.getFeatures), new breeze.linalg.DenseVector(e2.getFeatures))-1)\n    }\n}.persist",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "raw_S: org.apache.spark.rdd.RDD[(Int, (Int, Double))] = MapPartitionsRDD[39] at map at <console>:93\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[39] at map at &lt;console&gt;:93"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 41
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "###Matrix scaling\n\nWe scale all values of the matrix to the range [0,1] in order to make a proper similarity matrix.\n\nWe know the maximal value to be 0, for identical elements being compared. We find the minimal values of the matrix by using a min() function with a defined an ordering function that is adapted to the matrix structure. As each element of our matrix has the form (Int, (Int, Double)) with the two indices and the calculated distance, we have to explicitly specify that the value we want compared is the Double."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "//1) Find the min and max of the matrix\nval minKey2 = raw_S.min()(new Ordering[Tuple2[Int, Tuple2[Int, Double]]]() {\n  override def compare(x: (Int, (Int, Double)), y: (Int, (Int, Double))): Int = \n      Ordering[Double].compare(x._2._2, y._2._2)\n})\n\nprintln(\"max:\" + 0 + \" ; min:\" + minKey2)\n\n//2) Prepare scaler to [-1,0]\nval std_scaler = - minKey2._2._2\n\n//3) Map the matrix to the scaled results, and shift values by 1 to reach the [0,1] range\nval S = sc.broadcast{\n  raw_S.mapValues{ case (id, x) => (id, x/std_scaler + 1.0) }.\n  aggregateByKey(scala.collection.mutable.HashSet.empty[(Int, Double)])(_+_, _++_).\n  mapValues(_.toMap[Int, Double]).collectAsMap\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "max:0 ; min:(0,(110,-5.266817327534032))\nminKey2: (Int, (Int, Double)) = (0,(110,-5.266817327534032))\nstd_scaler: Double = 5.266817327534032\nS: org.apache.spark.broadcast.Broadcast[scala.collection.Map[Int,scala.collection.immutable.Map[Int,Double]]] = Broadcast(25)\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "Broadcast(25)"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 42
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering process"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val label_by_id = sc.broadcast(U.map(e => (e.getId, e.getLabel)).collectAsMap)\nval all_ids = label_by_id.value.keys",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "label_by_id: org.apache.spark.broadcast.Broadcast[scala.collection.Map[Int,Int]] = Broadcast(27)\nall_ids: Iterable[Int] = Set(92, 101, 83, 110, 119, 104, 23, 95, 77, 86, 50, 59, 113, 41, 32, 68, 53, 62, 35, 44, 8, 17, 26, 80, 89, 116, 98, 71, 107, 11, 74, 56, 38, 29, 47, 20, 2, 65, 5, 14, 106, 115, 46, 118, 100, 109, 82, 91, 55, 64, 73, 58, 67, 85, 94, 40, 49, 4, 13, 22, 103, 31, 76, 112, 16, 97, 7, 79, 88, 70, 43, 52, 25, 34, 61, 10, 37, 1, 28, 19, 60, 87, 96, 105, 114, 69, 78, 99, 63, 90, 45, 54, 72, 81, 27, 108, 36, 117, 9, 18, 48, 21, 57, 12, 3, 84, 102, 93, 75, 30, 39, 111, 66, 15, 42, 51, 33, 24, 6, 0)\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "Set(92, 101, 83, 110, 119, 104, 23, 95, 77, 86, 50, 59, 113, 41, 32, 68, 53, 62, 35, 44, 8, 17, 26, 80, 89, 116, 98, 71, 107, 11, 74, 56, 38, 29, 47, 20, 2, 65, 5, 14, 106, 115, 46, 118, 100, 109, 82, 91, 55, 64, 73, 58, 67, 85, 94, 40, 49, 4, 13, 22, 103, 31, 76, 112, 16, 97, 7, 79, 88, 70, 43, 52, 25, 34, 61, 10, 37, 1, 28, 19, 60, 87, 96, 105, 114, 69, 78, 99, 63, 90, 45, 54, 72, 81, 27, 108, 36, 117, 9, 18, 48, 21, 57, 12, 3, 84, 102, 93, 75, 30, 39, 111, 66, 15, 42, 51, 33, 24, 6, 0)"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 43
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "Whenever an element is added or removed from a cluster, we update all affinities with regards to the cluster based on that element. The interest of having built the similarity matrix as (ID1, (ID2, value)) instead of ((ID1, ID2), value) is that we can easily select the whole row of values related to the added/removed element, since they always must all be updated at the same time."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def add_affinities(a: scala.collection.mutable.Map[Int, Double], S_row: Map[Int, Double]): Unit = {\n  for (element <- a) {\n    val id : Int = element._1\n    val new_affinity : Double = element._2 + S_row(id)\n    a -= id\n    a += (id -> new_affinity)\n  }\n}\n\ndef remove_affinities(a: scala.collection.mutable.Map[Int, Double], S_row: Map[Int, Double]): Unit = {\n  for (element <- a) {\n    val id : Int = element._1\n    val new_affinity : Double = element._2 - S_row(id)\n    a -= id\n    a += (id -> new_affinity)\n  }\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "add_affinities: (a: scala.collection.mutable.Map[Int,Double], S_row: Map[Int,Double])Unit\nremove_affinities: (a: scala.collection.mutable.Map[Int,Double], S_row: Map[Int,Double])Unit\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 44
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the core of the CAST algorithm.\n* We initialize a set containing all the elements belonging to already closed clusters in the form (Sample ID, Attributed cluster ID)\n* The original algorithm defines the set U as containing all elements ; however, since the comparison between elements is already contained in the similarity matrix, we can simply use the list of all element IDs instead (which lowers the memory pressure). Note that U will be modified during the clustering process, and can thus not be a RDD, since it would otherwise get shipped to executors where changes would occur, but these changes would never go back to the driver. We thus ground U into a non-distributed mutable set.\n* While elements remain in U, we alternate between Add and Remove operations\n* We keep track of the elements contained in the current cluster via the mutable set *C_open*\n* We keep track of the affinities of all elements with regards to the current cluster via the mutable Map *affinities*\n* We find the element that has maximum or minimum affinity wrt the cluster via the *maxBy()* function, linking it to the *affinities* Map.\n\nPrinted reports on the different actions can be uncommented to follow the algorithm's progress."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def core_CAST(threshold : Double) : scala.collection.mutable.Set[(Int, Int)] = {\n  \n  //C : Set containing the already closed clusters\n  val C = scala.collection.mutable.Set.empty[(Int, Int)] //(Sample ID, Cluster)\n  var cluster_id = 0\n\n  // We ground U into a non-RDD mutable Set\n  val mut_U = scala.collection.mutable.Set.empty[Int] ++ all_ids\n\n  // We do the whole thing while there are still elements in U\n  while (!mut_U.isEmpty){\n\n    val remaining = mut_U.size\n    //println(s\"t=$threshold: $remaining elements remaining in U...\")\n\n    // Open a new current, open cluster of elements\n    var C_open = scala.collection.mutable.Set.empty[Int]\n\n    // Set all affinities wrt this new cluster to 0\n    var affinities = scala.collection.mutable.Map[Int, Double]() ++ all_ids.map(id => (id, 0.0)).toMap\n\n    var change_occurred : Boolean = false\n\n\n    do {\n\n      change_occurred = false\n\n\n      // ADD PHASE: Add high affinity elements to the current cluster\n\n      //println(\"-- ADD --\")\n\n      var max_element = -1\n      var max_affinity : Double = 0\n\n      // Avoid exceptions due to a max/reduce/maxBy on an empty collection\n      if (!mut_U.isEmpty) {\n\n        max_element = mut_U.maxBy(e => affinities(e))\n        max_affinity = affinities(max_element)\n        //println(s\"Max of U is $max_element with affinity $max_affinity\")\n      }\n\n      // While the last selected element is over the threshold\n      while ((!mut_U.isEmpty) && (max_affinity >= threshold*C_open.size)) {\n\n        //println(\"... and it is over threshold\")\n\n        val to_rem = mut_U.find(x => x == max_element).head\n        C_open += to_rem\n        mut_U -= to_rem\n        \n        add_affinities(affinities, S.value.apply(max_element))\n\n        // We find the next maximal element\n        if (!mut_U.isEmpty) {\n          max_element = mut_U.maxBy(e => affinities(e))\n          max_affinity = affinities(max_element)\n          //println(s\"New max of U is $max_element with affinity $max_affinity\")\n        }\n\n        change_occurred = true\n      }\n\n\n      //-----------------------------------\n\n\n      // REMOVE PHASE : Remove low affinity elements to the current cluster\n\n      //println(\"-- REMOVE --\")\n\n      var min_element = -1\n      var min_affinity : Double = 0\n\n      if (!C_open.isEmpty) {\n\n        min_element = C_open.minBy(e => affinities(e))\n        min_affinity = affinities(min_element)\n\n        //println(s\"Min of C_open is $min_element with affinity $min_affinity\")\n      }\n\n      while (!C_open.isEmpty && min_affinity < threshold*C_open.size) {\n\n        //println(\"... and it is under threshold\")\n\n        val to_add = C_open.find(x => x == min_element).head\n        C_open -= to_add\n        mut_U += to_add\n\n        remove_affinities(affinities, S.value.apply(max_element))\n\n        //Find the next minimal element\n        if (!C_open.isEmpty) {\n          min_element = C_open.minBy(e => affinities(e))\n          min_affinity = affinities(min_element)\n          //println(s\"New min of U is $min_element with affinity $min_affinity\")\n        }\n\n        change_occurred = true\n      }\n\n\n    } while(change_occurred)\n\n    //println(s\"No changes occurred: this cluster (id $cluster_id) is complete.\\n\")\n\n    C_open.foreach{ e => C += ((e, cluster_id)) }\n    cluster_id = cluster_id + 1\n\n  }\n\n  return C\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "core_CAST: (threshold: Double)scala.collection.mutable.Set[(Int, Int)]\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 45
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering evaluation\n\nWe evaluate the quality of the clustering using the true labels of our samples. The evaluation index is called Rand Index, and its result is found between 0 and 1, with 1 being a perfect clustering."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def evaluation_index(C : scala.collection.mutable.Set[(Int, Int)]) : Double = {\n  \n  val both = C.map{ case (id, cluster) => (id, (cluster, label_by_id.value.apply(id))) }\n  \n  return RID(both)\n}\n\n\ndef RID(to_eval : scala.collection.mutable.Set[(Int, (Int, Int))]) : Double = {\n\n    def choose2(n : Int) : Double = {\n    return n * (n - 1) / 2;\n  }\n\n  val denom = choose2(nb_elements) //Denominator of RID is (nb_samples choose 2)\n  \n  // a : number of pairs in the same cluster in C and in K\n  // b : number of pairs in different clusters in C and in K\n  var a = 0\n  var b = 0\n\n  //browse through all pairs of ID ; e1.getLabel == e2.getLabel && res1 == res2 ; != && !=\n\n  //not themselves, and not twice the same pair\n  for ((id1, classes1) <- to_eval ; (id2, classes2) <- to_eval) {\n\n    if (id1 != id2) {\n      if (classes1._1 == classes2._1 && classes1._2 == classes2._2) {\n        a += 1 //Classes match, and they should\n      }\n      else if (classes1._1 != classes2._1 && classes1._2 != classes2._2) {\n        b += 1 //Classes don't match, and they shouldn't\n      }\n    }\n  }\n\n  //We divide these counts by two since each pair was counted in both orders (a,b and b,a)\n  (a/2 + b/2) / denom\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "evaluation_index: (C: scala.collection.mutable.Set[(Int, Int)])Double\nRID: (to_eval: scala.collection.mutable.Set[(Int, (Int, Int))])Double\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 53
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "Function that applies the clustering, evaluates its quality, calculates the number of created clusters and returns all results."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def apply_CAST(threshold : Double) : (Double, Int, scala.collection.mutable.Set[(Int, Int)]) = {\n  val clustering_results = core_CAST(threshold)\n  val eval_index = evaluation_index(clustering_results)\n  \n  val nb_clusters = clustering_results.map(_._2).toList.distinct.size\n  \n  println(s\"(t, RID, #clusters) = ($threshold, $eval_index, $nb_clusters)\")\n  return (eval_index, nb_clusters, clustering_results)\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "apply_CAST: (threshold: Double)(Double, Int, scala.collection.mutable.Set[(Int, Int)])\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 54
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val (eval_value, numClusters, observed_clusters) = apply_CAST(threshold)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "(t, RID) = (0.47, 0.9439775910364145),\neval_value: Double = 0.9439775910364145\nnumClusters: Int = 4\nobserved_clusters: scala.collection.mutable.Set[(Int, Int)] = Set((70,1), (33,3), (117,1), (110,1), (31,3), (48,3), (30,3), (15,0), (85,1), (25,3), (45,3), (14,0), (119,2), (58,3), (111,0), (90,0), (71,1), (13,3), (36,3), (37,0), (42,3), (18,3), (115,2), (23,3), (21,3), (0,0), (75,1), (68,2), (38,3), (5,0), (101,1), (103,1), (29,3), (80,0), (44,3), (10,3), (100,2), (16,3), (98,1), (65,2), (32,0), (78,1), (52,0), (51,3), (93,1), (66,2), (7,0), (12,0), (56,3), (19,0), (82,2), (113,2), (81,1), (60,2), (88,1), (105,1), (91,1), (109,2), (97,2), (104,2), (28,0), (95,1), (2,0), (76,1), (86,0), (118,2), (55,3), (83,1), (53,3), (9,3), (41,0), (102,0), (96,2), (50,0), (84,1), (54,3), (73,0), (94,0), (3,3), (39,3), (47,3), (24,3), (1,3),..."
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "Set((70,1), (33,3), (117,1), (110,1), (31,3), (48,3), (30,3), (15,0), (85,1), (25,3), (45,3), (14,0), (119,2), (58,3), (111,0), (90,0), (71,1), (13,3), (36,3), (37,0), (42,3), (18,3), (115,2), (23,3), (21,3), (0,0), (75,1), (68,2), (38,3), (5,0), (101,1), (103,1), (29,3), (80,0), (44,3), (10,3), (100,2), (16,3), (98,1), (65,2), (32,0), (78,1), (52,0), (51,3), (93,1), (66,2), (7,0), (12,0), (56,3), (19,0), (82,2), (113,2), (81,1), (60,2), (88,1), (105,1), (91,1), (109,2), (97,2), (104,2), (28,0), (95,1), (2,0), (76,1), (86,0), (118,2), (55,3), (83,1), (53,3), (9,3), (41,0), (102,0), (96,2), (50,0), (84,1), (54,3), (73,0), (94,0), (3,3), (39,3), (47,3), (24,3), (1,3), (114,1), (67,2), (43,3), (6,3), (49,3), (63,2), (74,0), (72,1), (62,2), (22,0), (108,1), (116,0), (107,0), (106,1), (11,0), (92,1), (26,3), (40,0), (17,3), (4,0), (79,1), (34,0), (99,1), (61,2), (64,2), (20,3), (35,3), (87,1), (69,2), (59,3), (89,1), (112,1), (77,2), (27,3), (8,3), (46,3), (57,0))"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 55
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "Plot a visualization of the misclassification of elements after the clustering\n\nNote: Relaunching this section multiple times may cause a \"Task not serializable\" error. Shut the notebook down and try again if that is the case."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : true
+    },
+    "cell_type" : "code",
+    "source" : "val counts_attributions_by_true_label = sc.parallelize(observed_clusters.toSeq).map{\n  case (id, cluster) => (label_by_id.value.apply(id), cluster)\n}.groupByKey.\nmapValues{\n  labels =>\n  val counts = 0 until numClusters\n  counts.map( cluster_id => (cluster_id, labels.count( _ == cluster_id) ))\n}.sortBy(_._1)",
+    "outputs" : [ ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import notebook.front.third.wisp._\nimport com.quantifind.charts.highcharts._\nimport com.quantifind.charts.highcharts.Highchart._\n\nval model = counts_attributions_by_true_label.values.map{\n  x =>\n  Pairs(x, \"column\")\n}.collect.toSeq\n\nimport com.quantifind.charts.highcharts.Axis\n\nval names = (0 until numClusters).map{num => \"Cluster \" + num.toString}.toSeq\n\nPlot(\n  model,\n  xCat = Seq(names)\n)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import notebook.front.third.wisp._\nimport com.quantifind.charts.highcharts._\nimport com.quantifind.charts.highcharts.Highchart._\nmodel: Seq[notebook.front.third.wisp.Pairs[Int,Int]] = WrappedArray(Pairs(Vector((0,30), (1,0), (2,0), (3,0)),column,<function1>,<function1>), Pairs(Vector((0,0), (1,0), (2,0), (3,40)),column,<function1>,<function1>), Pairs(Vector((0,0), (1,10), (2,21), (3,0)),column,<function1>,<function1>), Pairs(Vector((0,0), (1,19), (2,0), (3,0)),column,<function1>,<function1>))\nimport com.quantifind.charts.highcharts.Axis\nnames: scala.collection.immutable.Seq[String] = Vector(Cluster 0, Cluster 1, Cluster 2, Cluster 3)\nres12: notebook.front.third.wisp.Plot = <Plot widget>\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anonf287adea08453df033e4c53ee46d98d0&quot;,&quot;dataInit&quot;:[{&quot;series&quot;:[{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:30},{&quot;x&quot;:1,&quot;y&quot;:0},{&quot;x&quot;:2,&quot;y&quot;:0},{&quot;x&quot;:3,&quot;y&quot;:0}],&quot;type&quot;:&quot;column&quot;},{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:0},{&quot;x&quot;:1,&quot;y&quot;:0},{&quot;x&quot;:2,&quot;y&quot;:0},{&quot;x&quot;:3,&quot;y&quot;:40}],&quot;type&quot;:&quot;column&quot;},{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:0},{&quot;x&quot;:1,&quot;y&quot;:10},{&quot;x&quot;:2,&quot;y&quot;:21},{&quot;x&quot;:3,&quot;y&quot;:0}],&quot;type&quot;:&quot;column&quot;},{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:0},{&quot;x&quot;:1,&quot;y&quot;:19},{&quot;x&quot;:2,&quot;y&quot;:0},{&quot;x&quot;:3,&quot;y&quot;:0}],&quot;type&quot;:&quot;column&quot;}],&quot;exporting&quot;:{&quot;filename&quot;:&quot;chart&quot;},&quot;plotOptions&quot;:{&quot;column&quot;:{&quot;turboThreshold&quot;:0}},&quot;credits&quot;:{&quot;href&quot;:&quot;&quot;,&quot;text&quot;:&quot;&quot;},&quot;chart&quot;:{&quot;zoomType&quot;:&quot;xy&quot;},&quot;title&quot;:{&quot;text&quot;:&quot;&quot;},&quot;xAxis&quot;:[{&quot;categories&quot;:[&quot;Cluster 0&quot;,&quot;Cluster 1&quot;,&quot;Cluster 2&quot;,&quot;Cluster 3&quot;],&quot;title&quot;:{&quot;text&quot;:&quot;&quot;}}]}],&quot;genId&quot;:&quot;1986274819&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/wispWrap'], \n      function(playground, _wispWrap) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _wispWrap,\n    \"o\": {\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 57
+    } ]
+  } ],
+  "nbformat" : 4
+}

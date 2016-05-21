@@ -1,0 +1,333 @@
+{
+  "metadata" : {
+    "name" : "K-Means (Acute Inflammations)",
+    "user_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "auto_save_timestamp" : "1970-01-01T01:00:00.000Z",
+    "language_info" : {
+      "name" : "scala",
+      "file_extension" : "scala",
+      "codemirror_mode" : "text/x-scala"
+    },
+    "trusted" : true,
+    "customLocalRepo" : null,
+    "customRepos" : null,
+    "customDeps" : null,
+    "customImports" : null,
+    "customArgs" : null,
+    "customSparkConf" : null
+  },
+  "cells" : [ {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "#Clustering: K-Means\n\nClustering applied to the [Acute inflammations dataset](https://archive.ics.uci.edu/ml/datasets/Acute+Inflammations) (UCI). As the dataset is not of large size, no separate preprocessing is necessary."
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We define the parameters of the process:\n* the number of patients to consider\n* the path to the input file"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val nb_patients = 1000\nval input_path = \"datasets/acute_inflammations/data\"",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "nb_patients: Int = 1000\ninput_path: String = datasets/acute_inflammations/data\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "datasets/acute_inflammations/data"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 1
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Retrieval from database\n\nWe start by cleaning the data and making each row of the RDD into a feature vector. We thus convert from String to the desired types, and encode values of type \"yes/no\" into numerical booleans."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val raw_data = sc.parallelize(sc.textFile(input_path).take(nb_patients))\n\nimport org.apache.spark.mllib.linalg.Vectors\n\nval elements = raw_data.zipWithIndex.map{\n  case (line, id) => \n  \n  val split = line.split('\\t')\n                            \n  val temperature = split(0).toDouble\n  val others = split.slice(1, 6).map{ v => if (v == \"no\") 0.0 else 1.0 }   \n  val res = Array(temperature) ++ others\n                            \n  val decisions = split.takeRight(2)\n  var label = 0\n  if (decisions(0) == \"no\" && decisions(1) == \"no\") {\n    label = 0 //\"neither\"\n  } else if (decisions(0) == \"yes\" && decisions(1) == \"no\") {\n    label = 1 //\"inflammation\"\n  } else if (decisions(0) == \"no\" && decisions(1) == \"yes\") {\n    label = 2 // \"nephretis\"\n  } else {\n    label = 3 //\"both\"\n  }\n  \n  ((id.toInt, label), Vectors.dense(res))\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "raw_data: org.apache.spark.rdd.RDD[String] = ParallelCollectionRDD[2] at parallelize at <console>:51\nimport org.apache.spark.mllib.linalg.Vectors\nelements: org.apache.spark.rdd.RDD[((Int, Int), org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[4] at map at <console>:55\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[4] at map at &lt;console&gt;:55"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 2
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We perform standardization of the features for more accurate machine learning processing."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.spark.mllib.feature.StandardScaler\n\nval stdscaler = new StandardScaler(withMean = true, withStd = true).fit(elements.values)\n\nval samples = elements.mapValues{ stdscaler.transform(_)}.persist\n\nval nb_elements = samples.count.toInt",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.spark.mllib.feature.StandardScaler\nstdscaler: org.apache.spark.mllib.feature.StandardScalerModel = org.apache.spark.mllib.feature.StandardScalerModel@2fbb9dca\nsamples: org.apache.spark.rdd.RDD[((Int, Int), org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[10] at mapValues at <console>:60\nnb_elements: Int = 120\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "120"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 3
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering process"
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}\n\nval numClusters = 4\nval numIterations = 20\nval numRuns = 5\nval kmeans_model = KMeans.train(samples.values, numClusters, numIterations, numRuns)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.spark.mllib.clustering.{KMeans, KMeansModel}\nnumClusters: Int = 4\nnumIterations: Int = 20\nnumRuns: Int = 5\nkmeans_model: org.apache.spark.mllib.clustering.KMeansModel = org.apache.spark.mllib.clustering.KMeansModel@4e82c8d6\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "org.apache.spark.mllib.clustering.KMeansModel@4e82c8d6"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 4
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "// Evaluate K-Means result by computing Within Set Sum of Squared Errors\nval WSSSE =  kmeans_model.computeCost(samples.values)\nprintln(\"Within Set Sum of Squared Errors = \" + WSSSE)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "Within Set Sum of Squared Errors = 199.7880662731205\nWSSSE: Double = 199.7880662731205\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 5
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val predicted_clusters = samples.mapValues{kmeans_model.predict(_)}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "predicted_clusters: org.apache.spark.rdd.RDD[((Int, Int), Int)] = MapPartitionsRDD[47] at mapValues at <console>:70\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[47] at mapValues at &lt;console&gt;:70"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 6
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Visualization\n\nThis section makes uses of the WISP library, that allows to make Javascript graphs. We will use PCA to represent our samples in two dimensions and display them in a scatter plot."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import org.apache.spark.mllib.linalg.Matrix\nimport org.apache.spark.mllib.linalg.distributed.RowMatrix\n\nval nb_features_before = samples.values.first.size.toInt\nval matrix = new RowMatrix(samples.values)\n\nval K = 2 //Number of Principal Components to compute\nval pc = matrix.computePrincipalComponents(K) //returns a a org.apache.spark.mllib.linalg.Matrix\n\n//We map all elements to DenseMatrix in order to multiply() them\nval pc_mapped = new org.apache.spark.mllib.linalg.DenseMatrix(nb_features_before, K, pc.toArray)\nval mapped = samples.mapValues( v => new org.apache.spark.mllib.linalg.DenseMatrix(1, nb_features_before, v.toArray))\n\n//Project the element to the K-dimensional space spanned by the principal components\nval projected = mapped.mapValues{_.multiply(pc_mapped)}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import org.apache.spark.mllib.linalg.Matrix\nimport org.apache.spark.mllib.linalg.distributed.RowMatrix\nnb_features_before: Int = 6\nmatrix: org.apache.spark.mllib.linalg.distributed.RowMatrix = org.apache.spark.mllib.linalg.distributed.RowMatrix@7fafd0ce\nK: Int = 2\npc: org.apache.spark.mllib.linalg.Matrix = \n-0.5391618898990064   0.034065198605397314   \n-0.6525769719843388   -0.060485538992191314  \n-0.44609734580876115  0.25443879765939265    \n0.04040387740916364   -0.6535764629163984    \n-0.2865907260689847   -0.46336542811559106   \n0.026042131253377763  -0.5371892098798959    \npc_mapped: org.apache.spark.mllib.linalg.DenseMatrix = \n-0.5391618898990064   0.034065198605397314   \n-0.6525769719843388   -0.060485538992191314  \n-0.44609734580876115  0.25443879765939265    \n0.0404038774091636..."
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "MapPartitionsRDD[59] at mapValues at &lt;console&gt;:76"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 7
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "import notebook.front.third.wisp._\nimport com.quantifind.charts.highcharts._\nimport com.quantifind.charts.highcharts.Highchart._",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "import notebook.front.third.wisp._\nimport com.quantifind.charts.highcharts._\nimport com.quantifind.charts.highcharts.Highchart._\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 8
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def scatterplot_model(label_and_features: RDD[(Int, org.apache.spark.mllib.linalg.DenseMatrix)]) = {\n  val tmp = label_and_features.\n  mapValues( m =>  (m.apply(0,0), m.apply(0,1))).\n  groupByKey.values.\n  map(v => Pairs(v.toSeq, \"scatter\")).collect\n  \n  tmp.map(_.series).toSeq \n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "scatterplot_model: (label_and_features: org.apache.spark.rdd.RDD[(Int, org.apache.spark.mllib.linalg.DenseMatrix)])Seq[com.quantifind.charts.highcharts.Series]\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 9
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "PlotH(Highchart(\n  scatterplot_model(projected.map{ case ((id, label), features) => (label, features) }),\n  title = \"True labeling (PCA to 2D)\",\n  xAxis = \"Dim1\",\n  yAxis = \"Dim2\"\n))",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "res3: notebook.front.third.wisp.PlotH = <PlotH widget>\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anon5b6ddbca76fc29f1911f174d3e3d4c78&quot;,&quot;dataInit&quot;:[{&quot;series&quot;:[{&quot;data&quot;:[{&quot;x&quot;:1.148856144630397,&quot;y&quot;:2.0141215548078972},{&quot;x&quot;:1.030302516588771,&quot;y&quot;:2.0216119820066463},{&quot;x&quot;:1.000664109578364,&quot;y&quot;:2.0234845888063333},{&quot;x&quot;:1.000664109578364,&quot;y&quot;:2.0234845888063333},{&quot;x&quot;:0.9413872955575501,&quot;y&quot;:2.027229802405708},{&quot;x&quot;:0.8228336675159239,&quot;y&quot;:2.034720229604457},{&quot;x&quot;:0.8228336675159239,&quot;y&quot;:2.034720229604457},{&quot;x&quot;:0.7931952605055169,&quot;y&quot;:2.036592836404144},{&quot;x&quot;:0.7931952605055169,&quot;y&quot;:2.036592836404144},{&quot;x&quot;:0.733918446484705,&quot;y&quot;:2.0403380500035184},{&quot;x&quot;:0.704280039474298,&quot;y&quot;:2.042210656803206},{&quot;x&quot;:0.674641632463891,&quot;y&quot;:2.044083263602893},{&quot;x&quot;:0.6450032254534839,&quot;y&quot;:2.0459558704025804},{&quot;x&quot;:0.615364818443079,&quot;y&quot;:2.0478284772022675},{&quot;x&quot;:0.585726411432672,&quot;y&quot;:2.0497010840019545},{&quot;x&quot;:0.5560880044222649,&quot;y&quot;:2.051573690801642},{&quot;x&quot;:0.5560880044222649,&quot;y&quot;:2.051573690801642},{&quot;x&quot;:0.49681119040145083,&quot;y&quot;:2.0553189044010165},{&quot;x&quot;:0.46717278339104595,&quot;y&quot;:2.0571915112007035},{&quot;x&quot;:0.43753437638063886,&quot;y&quot;:2.059064118000391},{&quot;x&quot;:0.7162002985592592,&quot;y&quot;:1.584447682099434},{&quot;x&quot;:0.7162002985592592,&quot;y&quot;:1.584447682099434},{&quot;x&quot;:0.6569234845384452,&quot;y&quot;:1.5881928956988085},{&quot;x&quot;:0.5976466705176332,&quot;y&quot;:1.591938109298183},{&quot;x&quot;:0.5383698564968192,&quot;y&quot;:1.5956833228975575},{&quot;x&quot;:0.5087314494864121,&quot;y&quot;:1.5975559296972448},{&quot;x&quot;:0.4198162284551932,&quot;y&quot;:1.6031737500963064},{&quot;x&quot;:0.3901778214447862,&quot;y&quot;:1.6050463568959936},{&quot;x&quot;:0.3605394144343791,&quot;y&quot;:1.6069189636956809},{&quot;x&quot;:0.27162419340316013,&quot;y&quot;:1.6125367840947427}],&quot;type&quot;:&quot;scatter&quot;},{&quot;data&quot;:[{&quot;x&quot;:1.4984617170407741,&quot;y&quot;:-1.8810439205973166},{&quot;x&quot;:1.4688233100303671,&quot;y&quot;:-1.8791713137976291},{&quot;x&quot;:1.4095464960095532,&quot;y&quot;:-1.8754261001982546},{&quot;x&quot;:1.379908088999148,&quot;y&quot;:-1.8735534933985676},{&quot;x&quot;:1.290992867967927,&quot;y&quot;:-1.8679356729995056},{&quot;x&quot;:1.290992867967927,&quot;y&quot;:-1.8679356729995056},{&quot;x&quot;:1.26135446095752,&quot;y&quot;:-1.8660630661998185},{&quot;x&quot;:1.2317160539471148,&quot;y&quot;:-1.8641904594001315},{&quot;x&quot;:1.2317160539471148,&quot;y&quot;:-1.8641904594001315},{&quot;x&quot;:1.2020776469367078,&quot;y&quot;:-1.862317852600444},{&quot;x&quot;:1.1198367132865084,&quot;y&quot;:-0.7753762301973908},{&quot;x&quot;:1.1198367132865084,&quot;y&quot;:-0.7753762301973908},{&quot;x&quot;:1.1724392399263008,&quot;y&quot;:-1.860445245800757},{&quot;x&quot;:1.1724392399263008,&quot;y&quot;:-1.860445245800757},{&quot;x&quot;:1.1724392399263008,&quot;y&quot;:-1.860445245800757},{&quot;x&quot;:1.1724392399263008,&quot;y&quot;:-1.860445245800757},{&quot;x&quot;:1.6907042056590007,&quot;y&quot;:0.14761337113667894},{&quot;x&quot;:1.1428008329158938,&quot;y&quot;:-1.8585726390010695},{&quot;x&quot;:1.6610657986485937,&quot;y&quot;:0.1494859779363662},{&quot;x&quot;:1.0605598992656944,&quot;y&quot;:-0.7716310165980163},{&quot;x&quot;:1.6314273916381865,&quot;y&quot;:0.15135858473605346},{&quot;x&quot;:1.083524018895082,&quot;y&quot;:-1.854827425401695},{&quot;x&quot;:1.6017889846277817,&quot;y&quot;:0.1532311915357406},{&quot;x&quot;:1.5721505776173748,&quot;y&quot;:0.15510379833542787},{&quot;x&quot;:0.9716446782344756,&quot;y&quot;:-0.7660131961989545},{&quot;x&quot;:1.0242472048742681,&quot;y&quot;:-1.8510822118023205},{&quot;x&quot;:1.5425121706069678,&quot;y&quot;:0.15697640513511513},{&quot;x&quot;:1.5425121706069678,&quot;y&quot;:0.15697640513511513},{&quot;x&quot;:0.9420062712240684,&quot;y&quot;:-0.7641405893992672},{&quot;x&quot;:0.9420062712240684,&quot;y&quot;:-0.7641405893992672},{&quot;x&quot;:0.9946087978638608,&quot;y&quot;:-1.8492096050026334},{&quot;x&quot;:0.9123678642136615,&quot;y&quot;:-0.76226798259958},{&quot;x&quot;:0.9123678642136615,&quot;y&quot;:-0.76226798259958},{&quot;x&quot;:1.4832353565861536,&quot;y&quot;:0.16072161873448965},{&quot;x&quot;:0.9353319838430488,&quot;y&quot;:-1.845464391403259},{&quot;x&quot;:1.4535969495757486,&quot;y&quot;:0.1625942255341768},{&quot;x&quot;:0.8530910501928495,&quot;y&quot;:-0.7585227690002057},{&quot;x&quot;:0.8530910501928495,&quot;y&quot;:-0.7585227690002057},{&quot;x&quot;:0.9056935768326418,&quot;y&quot;:-1.8435917846035719},{&quot;x&quot;:1.4239585425653416,&quot;y&quot;:0.16446683233386405}],&quot;type&quot;:&quot;scatter&quot;},{&quot;data&quot;:[{&quot;x&quot;:0.5458501927975674,&quot;y&quot;:-0.4047883977754257},{&quot;x&quot;:0.5458501927975674,&quot;y&quot;:-0.4047883977754257},{&quot;x&quot;:0.5162117857871603,&quot;y&quot;:-0.40291579097573843},{&quot;x&quot;:0.4569349717663484,&quot;y&quot;:-0.3991705773763641},{&quot;x&quot;:0.3976581577455344,&quot;y&quot;:-0.3954253637769895},{&quot;x&quot;:0.33838134372472034,&quot;y&quot;:-0.391680150177615},{&quot;x&quot;:0.2791045297039083,&quot;y&quot;:-0.3879349365782406},{&quot;x&quot;:0.24946612269350127,&quot;y&quot;:-0.3860623297785533},{&quot;x&quot;:0.13091249465187527,&quot;y&quot;:-0.3785719025798044},{&quot;x&quot;:0.04199727362065423,&quot;y&quot;:-0.3729540821807426},{&quot;x&quot;:-2.27375497794345,&quot;y&quot;:1.034698654853936},{&quot;x&quot;:-2.27375497794345,&quot;y&quot;:1.034698654853936},{&quot;x&quot;:-0.04691794741056484,&quot;y&quot;:-0.36733626178168094},{&quot;x&quot;:-2.333031791964264,&quot;y&quot;:1.0384438684533106},{&quot;x&quot;:-0.1358331684417838,&quot;y&quot;:-0.36171844138261927},{&quot;x&quot;:-2.3923086059850758,&quot;y&quot;:1.042189082052685},{&quot;x&quot;:-2.45158542000589,&quot;y&quot;:1.0459342956520594},{&quot;x&quot;:-2.481223827016297,&quot;y&quot;:1.047806902451747},{&quot;x&quot;:-0.25438679648341195,&quot;y&quot;:-0.35422801418387023},{&quot;x&quot;:-0.28402520349381694,&quot;y&quot;:-0.3523554073841831},{&quot;x&quot;:-0.3136636105042239,&quot;y&quot;:-0.3504828005844958},{&quot;x&quot;:-2.570139048047516,&quot;y&quot;:1.0534247228508085},{&quot;x&quot;:-0.3433020175146309,&quot;y&quot;:-0.34861019378480856},{&quot;x&quot;:-2.599777455057923,&quot;y&quot;:1.0552973296504957},{&quot;x&quot;:-0.3729404245250379,&quot;y&quot;:-0.3467375869851213},{&quot;x&quot;:-2.6294158620683303,&quot;y&quot;:1.057169936450183},{&quot;x&quot;:-0.402578831535445,&quot;y&quot;:-0.34486498018543404},{&quot;x&quot;:-0.46185564555625686,&quot;y&quot;:-0.34111976658605964},{&quot;x&quot;:-2.718331083099549,&quot;y&quot;:1.0627877568492445},{&quot;x&quot;:-0.49149405256666395,&quot;y&quot;:-0.3392471597863724},{&quot;x&quot;:-0.49149405256666395,&quot;y&quot;:-0.3392471597863724}],&quot;type&quot;:&quot;scatter&quot;},{&quot;data&quot;:[{&quot;x&quot;:-2.135800754516114,&quot;y&quot;:-1.4310264677215678},{&quot;x&quot;:-2.135800754516114,&quot;y&quot;:-1.4310264677215678},{&quot;x&quot;:-2.1884032811559067,&quot;y&quot;:-0.34595745211820167},{&quot;x&quot;:-2.2180416881663136,&quot;y&quot;:-0.3440848453185144},{&quot;x&quot;:-2.195077568536928,&quot;y&quot;:-1.4272812541221933},{&quot;x&quot;:-2.25435438255774,&quot;y&quot;:-1.4235360405228188},{&quot;x&quot;:-2.3069569091975324,&quot;y&quot;:-0.33846702491945285},{&quot;x&quot;:-2.3069569091975324,&quot;y&quot;:-0.33846702491945285},{&quot;x&quot;:-2.33659531620794,&quot;y&quot;:-0.3365944181197656},{&quot;x&quot;:-2.3136311965785543,&quot;y&quot;:-1.4197908269234443},{&quot;x&quot;:-2.3432696035889613,&quot;y&quot;:-1.4179182201237572},{&quot;x&quot;:-2.395872130228754,&quot;y&quot;:-0.3328492045203911},{&quot;x&quot;:-2.4551489442495655,&quot;y&quot;:-0.32910399092101655},{&quot;x&quot;:-2.4551489442495655,&quot;y&quot;:-0.32910399092101655},{&quot;x&quot;:-2.43218482462018,&quot;y&quot;:-1.4123003997246952},{&quot;x&quot;:-2.461823231630587,&quot;y&quot;:-1.4104277929250082},{&quot;x&quot;:-2.5144257582703795,&quot;y&quot;:-0.32535877732164203},{&quot;x&quot;:-2.4914616386409945,&quot;y&quot;:-1.4085551861253207},{&quot;x&quot;:-2.5737025722911917,&quot;y&quot;:-0.32161356372226774}],&quot;type&quot;:&quot;scatter&quot;}],&quot;exporting&quot;:{&quot;filename&quot;:&quot;chart&quot;},&quot;yAxis&quot;:[{&quot;title&quot;:{&quot;text&quot;:&quot;Dim2&quot;}}],&quot;plotOptions&quot;:{&quot;scatter&quot;:{&quot;turboThreshold&quot;:0}},&quot;credits&quot;:{&quot;href&quot;:&quot;&quot;,&quot;text&quot;:&quot;&quot;},&quot;chart&quot;:{&quot;zoomType&quot;:&quot;xy&quot;},&quot;title&quot;:{&quot;text&quot;:&quot;True labeling (PCA to 2D)&quot;},&quot;xAxis&quot;:[{&quot;title&quot;:{&quot;text&quot;:&quot;Dim1&quot;}}]}],&quot;genId&quot;:&quot;271285794&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/wispWrap'], \n      function(playground, _wispWrap) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _wispWrap,\n    \"o\": {\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 10
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "PlotH(Highchart(\n  scatterplot_model(predicted_clusters.join(projected).values),\n  title = \"K-means labeling (PCA to 2D)\",\n  xAxis = \"Dim1\",\n  yAxis = \"Dim2\"\n))",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "res4: notebook.front.third.wisp.PlotH = <PlotH widget>\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anoncc1a73eeed84971897cac9a7629199c7&quot;,&quot;dataInit&quot;:[{&quot;series&quot;:[{&quot;data&quot;:[{&quot;x&quot;:0.733918446484705,&quot;y&quot;:2.0403380500035184},{&quot;x&quot;:0.615364818443079,&quot;y&quot;:2.0478284772022675},{&quot;x&quot;:0.7162002985592592,&quot;y&quot;:1.584447682099434},{&quot;x&quot;:0.7931952605055169,&quot;y&quot;:2.036592836404144},{&quot;x&quot;:0.585726411432672,&quot;y&quot;:2.0497010840019545},{&quot;x&quot;:0.4198162284551932,&quot;y&quot;:1.6031737500963064},{&quot;x&quot;:0.5087314494864121,&quot;y&quot;:1.5975559296972448},{&quot;x&quot;:1.030302516588771,&quot;y&quot;:2.0216119820066463},{&quot;x&quot;:0.27162419340316013,&quot;y&quot;:1.6125367840947427},{&quot;x&quot;:0.3605394144343791,&quot;y&quot;:1.6069189636956809},{&quot;x&quot;:1.148856144630397,&quot;y&quot;:2.0141215548078972},{&quot;x&quot;:0.3901778214447862,&quot;y&quot;:1.6050463568959936},{&quot;x&quot;:0.8228336675159239,&quot;y&quot;:2.034720229604457},{&quot;x&quot;:0.46717278339104595,&quot;y&quot;:2.0571915112007035},{&quot;x&quot;:0.5976466705176332,&quot;y&quot;:1.591938109298183},{&quot;x&quot;:0.8228336675159239,&quot;y&quot;:2.034720229604457},{&quot;x&quot;:0.6569234845384452,&quot;y&quot;:1.5881928956988085},{&quot;x&quot;:0.9413872955575501,&quot;y&quot;:2.027229802405708},{&quot;x&quot;:0.5383698564968192,&quot;y&quot;:1.5956833228975575},{&quot;x&quot;:0.6450032254534839,&quot;y&quot;:2.0459558704025804},{&quot;x&quot;:0.704280039474298,&quot;y&quot;:2.042210656803206},{&quot;x&quot;:1.000664109578364,&quot;y&quot;:2.0234845888063333},{&quot;x&quot;:0.674641632463891,&quot;y&quot;:2.044083263602893},{&quot;x&quot;:0.49681119040145083,&quot;y&quot;:2.0553189044010165},{&quot;x&quot;:0.43753437638063886,&quot;y&quot;:2.059064118000391},{&quot;x&quot;:0.5560880044222649,&quot;y&quot;:2.051573690801642},{&quot;x&quot;:0.5560880044222649,&quot;y&quot;:2.051573690801642},{&quot;x&quot;:0.7931952605055169,&quot;y&quot;:2.036592836404144},{&quot;x&quot;:1.000664109578364,&quot;y&quot;:2.0234845888063333},{&quot;x&quot;:0.7162002985592592,&quot;y&quot;:1.584447682099434}],&quot;type&quot;:&quot;scatter&quot;},{&quot;data&quot;:[{&quot;x&quot;:-2.27375497794345,&quot;y&quot;:1.034698654853936},{&quot;x&quot;:-2.333031791964264,&quot;y&quot;:1.0384438684533106},{&quot;x&quot;:-2.599777455057923,&quot;y&quot;:1.0552973296504957},{&quot;x&quot;:-2.3069569091975324,&quot;y&quot;:-0.33846702491945285},{&quot;x&quot;:-2.3432696035889613,&quot;y&quot;:-1.4179182201237572},{&quot;x&quot;:-2.4551489442495655,&quot;y&quot;:-0.32910399092101655},{&quot;x&quot;:-2.135800754516114,&quot;y&quot;:-1.4310264677215678},{&quot;x&quot;:-2.461823231630587,&quot;y&quot;:-1.4104277929250082},{&quot;x&quot;:-2.3923086059850758,&quot;y&quot;:1.042189082052685},{&quot;x&quot;:-2.43218482462018,&quot;y&quot;:-1.4123003997246952},{&quot;x&quot;:-2.2180416881663136,&quot;y&quot;:-0.3440848453185144},{&quot;x&quot;:-2.3136311965785543,&quot;y&quot;:-1.4197908269234443},{&quot;x&quot;:-2.6294158620683303,&quot;y&quot;:1.057169936450183},{&quot;x&quot;:-2.5144257582703795,&quot;y&quot;:-0.32535877732164203},{&quot;x&quot;:-2.27375497794345,&quot;y&quot;:1.034698654853936},{&quot;x&quot;:-2.1884032811559067,&quot;y&quot;:-0.34595745211820167},{&quot;x&quot;:-2.481223827016297,&quot;y&quot;:1.047806902451747},{&quot;x&quot;:-2.4551489442495655,&quot;y&quot;:-0.32910399092101655},{&quot;x&quot;:-2.570139048047516,&quot;y&quot;:1.0534247228508085},{&quot;x&quot;:-2.33659531620794,&quot;y&quot;:-0.3365944181197656},{&quot;x&quot;:-2.5737025722911917,&quot;y&quot;:-0.32161356372226774},{&quot;x&quot;:-2.3069569091975324,&quot;y&quot;:-0.33846702491945285},{&quot;x&quot;:-2.195077568536928,&quot;y&quot;:-1.4272812541221933},{&quot;x&quot;:-2.395872130228754,&quot;y&quot;:-0.3328492045203911},{&quot;x&quot;:-2.135800754516114,&quot;y&quot;:-1.4310264677215678},{&quot;x&quot;:-2.718331083099549,&quot;y&quot;:1.0627877568492445},{&quot;x&quot;:-2.45158542000589,&quot;y&quot;:1.0459342956520594},{&quot;x&quot;:-2.4914616386409945,&quot;y&quot;:-1.4085551861253207},{&quot;x&quot;:-2.25435438255774,&quot;y&quot;:-1.4235360405228188}],&quot;type&quot;:&quot;scatter&quot;},{&quot;data&quot;:[{&quot;x&quot;:1.26135446095752,&quot;y&quot;:-1.8660630661998185},{&quot;x&quot;:0.9420062712240684,&quot;y&quot;:-0.7641405893992672},{&quot;x&quot;:1.1198367132865084,&quot;y&quot;:-0.7753762301973908},{&quot;x&quot;:0.8530910501928495,&quot;y&quot;:-0.7585227690002057},{&quot;x&quot;:1.1724392399263008,&quot;y&quot;:-1.860445245800757},{&quot;x&quot;:1.6017889846277817,&quot;y&quot;:0.1532311915357406},{&quot;x&quot;:1.4239585425653416,&quot;y&quot;:0.16446683233386405},{&quot;x&quot;:1.4832353565861536,&quot;y&quot;:0.16072161873448965},{&quot;x&quot;:1.2020776469367078,&quot;y&quot;:-1.862317852600444},{&quot;x&quot;:1.5721505776173748,&quot;y&quot;:0.15510379833542787},{&quot;x&quot;:0.9946087978638608,&quot;y&quot;:-1.8492096050026334},{&quot;x&quot;:1.1724392399263008,&quot;y&quot;:-1.860445245800757},{&quot;x&quot;:0.9056935768326418,&quot;y&quot;:-1.8435917846035719},{&quot;x&quot;:1.4535969495757486,&quot;y&quot;:0.1625942255341768},{&quot;x&quot;:1.2317160539471148,&quot;y&quot;:-1.8641904594001315},{&quot;x&quot;:1.083524018895082,&quot;y&quot;:-1.854827425401695},{&quot;x&quot;:0.9123678642136615,&quot;y&quot;:-0.76226798259958},{&quot;x&quot;:1.1724392399263008,&quot;y&quot;:-1.860445245800757},{&quot;x&quot;:1.6610657986485937,&quot;y&quot;:0.1494859779363662},{&quot;x&quot;:1.6907042056590007,&quot;y&quot;:0.14761337113667894},{&quot;x&quot;:1.5425121706069678,&quot;y&quot;:0.15697640513511513},{&quot;x&quot;:0.9123678642136615,&quot;y&quot;:-0.76226798259958},{&quot;x&quot;:1.379908088999148,&quot;y&quot;:-1.8735534933985676},{&quot;x&quot;:1.4984617170407741,&quot;y&quot;:-1.8810439205973166},{&quot;x&quot;:1.5425121706069678,&quot;y&quot;:0.15697640513511513},{&quot;x&quot;:1.1428008329158938,&quot;y&quot;:-1.8585726390010695},{&quot;x&quot;:1.0242472048742681,&quot;y&quot;:-1.8510822118023205},{&quot;x&quot;:1.4095464960095532,&quot;y&quot;:-1.8754261001982546},{&quot;x&quot;:1.4688233100303671,&quot;y&quot;:-1.8791713137976291},{&quot;x&quot;:1.1198367132865084,&quot;y&quot;:-0.7753762301973908},{&quot;x&quot;:0.8530910501928495,&quot;y&quot;:-0.7585227690002057},{&quot;x&quot;:1.290992867967927,&quot;y&quot;:-1.8679356729995056},{&quot;x&quot;:0.9716446782344756,&quot;y&quot;:-0.7660131961989545},{&quot;x&quot;:1.1724392399263008,&quot;y&quot;:-1.860445245800757},{&quot;x&quot;:0.9420062712240684,&quot;y&quot;:-0.7641405893992672},{&quot;x&quot;:1.6314273916381865,&quot;y&quot;:0.15135858473605346},{&quot;x&quot;:1.290992867967927,&quot;y&quot;:-1.8679356729995056},{&quot;x&quot;:1.0605598992656944,&quot;y&quot;:-0.7716310165980163},{&quot;x&quot;:1.2317160539471148,&quot;y&quot;:-1.8641904594001315},{&quot;x&quot;:0.9353319838430488,&quot;y&quot;:-1.845464391403259}],&quot;type&quot;:&quot;scatter&quot;},{&quot;data&quot;:[{&quot;x&quot;:0.24946612269350127,&quot;y&quot;:-0.3860623297785533},{&quot;x&quot;:-0.04691794741056484,&quot;y&quot;:-0.36733626178168094},{&quot;x&quot;:-0.402578831535445,&quot;y&quot;:-0.34486498018543404},{&quot;x&quot;:0.5458501927975674,&quot;y&quot;:-0.4047883977754257},{&quot;x&quot;:0.5162117857871603,&quot;y&quot;:-0.40291579097573843},{&quot;x&quot;:-0.49149405256666395,&quot;y&quot;:-0.3392471597863724},{&quot;x&quot;:-0.25438679648341195,&quot;y&quot;:-0.35422801418387023},{&quot;x&quot;:0.3976581577455344,&quot;y&quot;:-0.3954253637769895},{&quot;x&quot;:-0.28402520349381694,&quot;y&quot;:-0.3523554073841831},{&quot;x&quot;:0.04199727362065423,&quot;y&quot;:-0.3729540821807426},{&quot;x&quot;:-0.49149405256666395,&quot;y&quot;:-0.3392471597863724},{&quot;x&quot;:-0.3729404245250379,&quot;y&quot;:-0.3467375869851213},{&quot;x&quot;:0.13091249465187527,&quot;y&quot;:-0.3785719025798044},{&quot;x&quot;:0.2791045297039083,&quot;y&quot;:-0.3879349365782406},{&quot;x&quot;:-0.3433020175146309,&quot;y&quot;:-0.34861019378480856},{&quot;x&quot;:0.5458501927975674,&quot;y&quot;:-0.4047883977754257},{&quot;x&quot;:0.4569349717663484,&quot;y&quot;:-0.3991705773763641},{&quot;x&quot;:-0.1358331684417838,&quot;y&quot;:-0.36171844138261927},{&quot;x&quot;:-0.3136636105042239,&quot;y&quot;:-0.3504828005844958},{&quot;x&quot;:0.33838134372472034,&quot;y&quot;:-0.391680150177615},{&quot;x&quot;:-0.46185564555625686,&quot;y&quot;:-0.34111976658605964}],&quot;type&quot;:&quot;scatter&quot;}],&quot;exporting&quot;:{&quot;filename&quot;:&quot;chart&quot;},&quot;yAxis&quot;:[{&quot;title&quot;:{&quot;text&quot;:&quot;Dim2&quot;}}],&quot;plotOptions&quot;:{&quot;scatter&quot;:{&quot;turboThreshold&quot;:0}},&quot;credits&quot;:{&quot;href&quot;:&quot;&quot;,&quot;text&quot;:&quot;&quot;},&quot;chart&quot;:{&quot;zoomType&quot;:&quot;xy&quot;},&quot;title&quot;:{&quot;text&quot;:&quot;K-means labeling (PCA to 2D)&quot;},&quot;xAxis&quot;:[{&quot;title&quot;:{&quot;text&quot;:&quot;Dim1&quot;}}]}],&quot;genId&quot;:&quot;1097284898&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/wispWrap'], \n      function(playground, _wispWrap) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _wispWrap,\n    \"o\": {\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 11
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "##Clustering evaluation\n\nWe evaluate the quality of the clustering using the true labels of our samples. The evaluation index is called Rand Index, and its result is found between 0 and 1, with 1 being a perfect clustering.\n\nWe use Accumulators for *a* and *b* to allow these counts to be realized in parallel in the network and the result still returned to the driver."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "def RID(to_eval : RDD[((Int, (Int, Int)), (Int, (Int, Int)))]) : Double = {\n  \n  def choose2(n : Int) : Double = {\n    return n * (n - 1) / 2;\n  }\n\n  val denom = choose2(nb_elements) //Denominator of RID is (nb_samples choose 2)\n  \n  // a : number of pairs in the same cluster in C and in K\n  // b : number of pairs in different clusters in C and in K\n  val a = sc.accumulator(0, \"Acc a : same cluster in both\")\n  val b = sc.accumulator(0, \"Acc b : different cluster in both\")\n\n  to_eval.foreach{\n    case ((id1, classes1), (id2, classes2)) =>\n\n    if (id1 != id2) {\n      if (classes1._1 == classes2._1 && classes1._2 == classes2._2) {\n        a += 1 //Classes match, and they should\n      }\n      else if (classes1._1 != classes2._1 && classes1._2 != classes2._2) {\n        b += 1 //Classes don't match, and they shouldn't\n      }\n    }\n  }\n\n  //We divide these counts by two since each pair was counted in both orders (a,b and b,a)\n  (a.value/2 + b.value/2) / denom\n}",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "RID: (to_eval: org.apache.spark.rdd.RDD[((Int, (Int, Int)), (Int, (Int, Int)))])Double\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 12
+    } ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "val both = predicted_clusters.map{ case ((id, label1), label2) => (id, (label1, label2))}\nval to_eval = both.cartesian(both)\nval eval_res = RID(to_eval)\n\nprintln(s\"RID = $eval_res | for nb_elements = $nb_elements & numClusters = $numClusters\")",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "RID = 0.9439775910364145 | for nb_elements = 120 & numClusters = 4\nboth: org.apache.spark.rdd.RDD[(Int, (Int, Int))] = MapPartitionsRDD[73] at map at <console>:87\nto_eval: org.apache.spark.rdd.RDD[((Int, (Int, Int)), (Int, (Int, Int)))] = CartesianRDD[74] at cartesian at <console>:88\neval_res: Double = 0.9439775910364145\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : ""
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 13
+    } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "Plot a visualization of the misclassification of elements after the clustering\n\nNote: Relaunching this section multiple times may cause a \"Task not serializable\" error. Shut the notebook down and try again if that is the case."
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
+      "collapsed" : false
+    },
+    "cell_type" : "code",
+    "source" : "//Separate true and false positive for each cluster\nval counts_attributions_by_true_label = predicted_clusters.map{\n  case ((id, label1), label2) =>\n  (label1, label2)\n}.groupByKey.\nmapValues{\n  labels =>\n  val counts = 0 until numClusters\n  counts.map( cluster_id => (cluster_id, labels.count( _ == cluster_id) ))\n}.sortBy(_._1)\n\nval model = counts_attributions_by_true_label.values.map{\n  x =>\n  Pairs(x, \"column\")\n}.collect.toSeq\n\nimport com.quantifind.charts.highcharts.Axis\n\nval names = (0 until numClusters).map{num => \"Cluster \" + num.toString}.toSeq\n\nPlot(\n  model,\n  xCat = Seq(names)\n)",
+    "outputs" : [ {
+      "name" : "stdout",
+      "output_type" : "stream",
+      "text" : "counts_attributions_by_true_label: org.apache.spark.rdd.RDD[(Int, scala.collection.immutable.IndexedSeq[(Int, Int)])] = MapPartitionsRDD[82] at sortBy at <console>:92\nmodel: Seq[notebook.front.third.wisp.Pairs[Int,Int]] = WrappedArray(Pairs(Vector((0,30), (1,0), (2,0), (3,0)),column,<function1>,<function1>), Pairs(Vector((0,0), (1,0), (2,40), (3,0)),column,<function1>,<function1>), Pairs(Vector((0,0), (1,10), (2,0), (3,21)),column,<function1>,<function1>), Pairs(Vector((0,0), (1,19), (2,0), (3,0)),column,<function1>,<function1>))\nimport com.quantifind.charts.highcharts.Axis\nnames: scala.collection.immutable.Seq[String] = Vector(Cluster 0, Cluster 1, Cluster 2, Cluster 3)\nres6: notebook.front.third.wisp.Plot = <Plot widget>\n"
+    }, {
+      "metadata" : { },
+      "data" : {
+        "text/html" : "<div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anon459b504fd09199c0274137fae608f1f8&quot;,&quot;dataInit&quot;:[{&quot;series&quot;:[{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:30},{&quot;x&quot;:1,&quot;y&quot;:0},{&quot;x&quot;:2,&quot;y&quot;:0},{&quot;x&quot;:3,&quot;y&quot;:0}],&quot;type&quot;:&quot;column&quot;},{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:0},{&quot;x&quot;:1,&quot;y&quot;:0},{&quot;x&quot;:2,&quot;y&quot;:40},{&quot;x&quot;:3,&quot;y&quot;:0}],&quot;type&quot;:&quot;column&quot;},{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:0},{&quot;x&quot;:1,&quot;y&quot;:10},{&quot;x&quot;:2,&quot;y&quot;:0},{&quot;x&quot;:3,&quot;y&quot;:21}],&quot;type&quot;:&quot;column&quot;},{&quot;data&quot;:[{&quot;x&quot;:0,&quot;y&quot;:0},{&quot;x&quot;:1,&quot;y&quot;:19},{&quot;x&quot;:2,&quot;y&quot;:0},{&quot;x&quot;:3,&quot;y&quot;:0}],&quot;type&quot;:&quot;column&quot;}],&quot;exporting&quot;:{&quot;filename&quot;:&quot;chart&quot;},&quot;plotOptions&quot;:{&quot;column&quot;:{&quot;turboThreshold&quot;:0}},&quot;credits&quot;:{&quot;href&quot;:&quot;&quot;,&quot;text&quot;:&quot;&quot;},&quot;chart&quot;:{&quot;zoomType&quot;:&quot;xy&quot;},&quot;title&quot;:{&quot;text&quot;:&quot;&quot;},&quot;xAxis&quot;:[{&quot;categories&quot;:[&quot;Cluster 0&quot;,&quot;Cluster 1&quot;,&quot;Cluster 2&quot;,&quot;Cluster 3&quot;],&quot;title&quot;:{&quot;text&quot;:&quot;&quot;}}]}],&quot;genId&quot;:&quot;199945385&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/wispWrap'], \n      function(playground, _wispWrap) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _wispWrap,\n    \"o\": {\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div>"
+      },
+      "output_type" : "execute_result",
+      "execution_count" : 14
+    } ]
+  } ],
+  "nbformat" : 4
+}
