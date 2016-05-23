@@ -69,6 +69,10 @@
       "execution_count" : 16
     } ]
   }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We can later restrict the selection of variants to the ones contained into specific genes. This list of genes, based on the identified causal genes in the literature, is built here."
+  }, {
     "metadata" : {
       "trusted" : true,
       "input_collapsed" : false,
@@ -81,6 +85,10 @@
       "output_type" : "error",
       "traceback" : [ "Incomplete (hint: check the parenthesis)" ]
     } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We cannot take patients directly from the database, as we do not know which DDD patients are affected children and which are parent controls. To select appropriate IDs, we thus need to go through the file describing family relationships."
   }, {
     "metadata" : {
       "trusted" : true,
@@ -102,6 +110,10 @@
       "execution_count" : 18
     } ]
   }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We query variants for these patients based on the criteria of our choice: quality filters, allele number, presence in a given chromosome, minor allele frequency...\n\nIn our case, we will get the CADD scores associated to all variants in the selected patients. As we will want to analyze the total impact of those variants during the post-processing, we collect the SNPeff impact values as well.\n\nIf the list of patients is very long, we cannot just add them to the original SQL query, since a \"WHERE\" clause of hundreds of elements causes a StackOverflow error. We thus first apply our SQL query regardless of our patients selection, get a DataFrame in return, and only then use the *where()* method which filters elements based on the column(s) of our choice. We can then *map* our list of accepted patients to another column of literal values through the *lit()* function, and check the membership of elements from the first in the second via the *isin()* method.\nA similar technique is applied to filter out patients listed in the reject list.\n\nOnce the filtering is done, we can extract the content of the remaining lines. By default, the content of each column in a DataFrame is a String, but we can convert it to the type needed (this line is where the processing gets long since it is the point where the data is extracted in practice).\n\nFinally, we need to group the variant metadata based on its associated patients to get an initial patients representation. A *groupByKey* function exists in Spark, but is known to create an overhead of shuffling operations. Instead, we use *aggregateByKey* which groups elements locally before merging the formed groups amongst remote partitions.\nBy default this operation returns a RDD of Iterables (containing the different variants as tuples of form (Position, Allele)), which we convert to an Array for more flexibility in the subsequent operation.\n\nThat array is filled with tuples of the kind (Metadata1, Metadata2,...) ; we can isolate each type of metadata over all of that patient's variants by *mapping* the array elements to the metadata type of interest and perform analysis on it (take the mean and variance of all Metadata1 values across the patient's variants, for instance)."
+  }, {
     "metadata" : {
       "trusted" : true,
       "input_collapsed" : false,
@@ -121,6 +133,10 @@
       "output_type" : "execute_result",
       "execution_count" : 19
     } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We do the same operations on the 1000G data."
   }, {
     "metadata" : {
       "trusted" : true,
@@ -185,6 +201,15 @@
     "metadata" : {
       "trusted" : true,
       "input_collapsed" : false,
+      "collapsed" : true
+    },
+    "cell_type" : "code",
+    "source" : "We join both datasets: the patient IDs and the features vectors to align.",
+    "outputs" : [ ]
+  }, {
+    "metadata" : {
+      "trusted" : true,
+      "input_collapsed" : false,
       "collapsed" : false
     },
     "cell_type" : "code",
@@ -245,10 +270,6 @@
       "output_type" : "execute_result",
       "execution_count" : 25
     } ]
-  }, {
-    "metadata" : { },
-    "cell_type" : "markdown",
-    "source" : "Similarly as before, we can check the length of the alignments by collecting them to the driver."
   }, {
     "metadata" : { },
     "cell_type" : "markdown",

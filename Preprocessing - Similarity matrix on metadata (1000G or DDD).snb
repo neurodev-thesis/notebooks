@@ -32,18 +32,7 @@
     },
     "cell_type" : "code",
     "source" : "val nb_patients = 3\nval reject_list = Array(\"\")\nval pathVariants = \"/user/hive/warehouse/1000g.db/ddd\" //or \"/user/hive/warehouse/1000g.db/exomes_1000g\"\nval output_path = \"hdfs:/user/ndewit/\"\nval output_name =  \"CASTUtils_DDD_metadata\"\nval nb_partitions = 10\n//In standalone application, we can automatically set it to conf.get(\"spark.default.parallelism\").toInt",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "nb_patients: Int = 3\nreject_list: Array[String] = Array(\"\")\npathVariants: String = /user/hive/warehouse/1000g.db/ddd\noutput_path: String = hdfs:/user/ndewit/\noutput_name: String = CASTUtils_DDD_metadata\nnb_partitions: Int = 10\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "10"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 1
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -56,18 +45,7 @@
     },
     "cell_type" : "code",
     "source" : "val sqlContext = new org.apache.spark.sql.SQLContext(sc)\nsqlContext.sql(\"SET spark.sql.parquet.binaryAsString=true\")\nimport sqlContext.implicits._\n\nval parquetFile = sqlContext.read.parquet(pathVariants)\nparquetFile.registerTempTable(\"variantData\")",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "sqlContext: org.apache.spark.sql.SQLContext = org.apache.spark.sql.SQLContext@5a925052\nimport sqlContext.implicits._\nparquetFile: org.apache.spark.sql.DataFrame = [id: int, platform: string, outsourcing: string, project_id: int, run_label: string, patient: string, pathology: string, partition: int, sample_type: string, chr: string, pos: int, reference: string, alternative: string, change_type: string, hgvs_protein: string, hgvs_dna: string, gene_symbol: string, exon_intron_rank: int, exon_intron_total: int, cdna_pos: int, cdna_length: int, cds_pos: int, cds_length: int, protein_pos: int, protein_length: int, gene_ensembl: string, num_genes: int, biotype: string, transcript_ensembl: string, transcript_uniprot_id: string, transcript_uniprot_acc: string, transcript_refseq_prot: string, tra..."
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : ""
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 2
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -80,18 +58,11 @@
     },
     "cell_type" : "code",
     "source" : "//For 1000G\n/*\nval patients_id = sqlContext.\nsql(\"SELECT DISTINCT patient FROM variantData \" +\n    \" LIMIT \" + nb_patients.toString).\nmap(_.getString(0)).collect\n*/\n\n//Alternatively, for DDD\nval base_path = \"datasets/ddd/\"\nval sourceFile = base_path + \"ddd3_family_relationships.txt\" // + cache if dataset big\nval source_data = sc.textFile(sourceFile)\nval families = source_data.map(_.split('\\t')).filter(_(2) != \"0\").map(x => (x(1), x(2), x(3)))\nval patients_id = families.map(_._1).take(nb_patients)",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "base_path: String = datasets/ddd/\nsourceFile: String = datasets/ddd/ddd3_family_relationships.txt\nsource_data: org.apache.spark.rdd.RDD[String] = MapPartitionsRDD[4] at textFile at <console>:65\nfamilies: org.apache.spark.rdd.RDD[(String, String, String)] = MapPartitionsRDD[7] at map at <console>:66\npatients_id: Array[String] = Array(DDDP101968, DDDP102189, DDDP111239)\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "<div class=\"container-fluid\"><div><div class=\"col-md-12\"><div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anond4d6715fe6d92c765d828667244987fc&quot;,&quot;dataInit&quot;:[{&quot;string value&quot;:&quot;DDDP101968&quot;},{&quot;string value&quot;:&quot;DDDP102189&quot;},{&quot;string value&quot;:&quot;DDDP111239&quot;}],&quot;genId&quot;:&quot;650536762&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/magic/tableChart'], \n      function(playground, _magictableChart) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _magictableChart,\n    \"o\": {\"headers\":[\"string value\"],\"nrow\":3,\"shown\":3,\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div></div></div></div>"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 3
-    } ]
+    "outputs" : [ ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We can later restrict the selection of variants to the ones contained into specific genes. This list of genes, based on the identified causal genes in the literature, is built here."
   }, {
     "metadata" : {
       "trusted" : true,
@@ -113,18 +84,7 @@
     },
     "cell_type" : "code",
     "source" : " def make_request(cols : String) : String = {\n  var request = \"SELECT \" + cols + \" \"\n  request += \"FROM variantData \"\n  request += \"WHERE (\"\n  request += \"consensus_maf < 0.01 \"\n  request += \"AND cadd_phred IS NOT NULL \"\n  request += \")\"\n  return request\n}\n\nimport org.apache.spark.sql.functions.lit  //lit: Creates a Column of literal value\nimport org.apache.commons.math3.stat._\n\nvar initial_by_patient = sqlContext.\nsql(make_request(\"patient,\" +\n                 \"cadd_phred,\" +\n                 \"snpeff_impact\"\n                )).\nwhere($\"patient\".isin(patients_id.map(lit(_)):_*)).\nwhere(!$\"patient\".isin(reject_list.map(lit(_)):_*)).\n//join(gene_list, $\"gene_symbol\" === $\"gene_list\").\n//drop(\"gene_symbol\").\nmap{ row =>\n    (row.getString(0),\n     (\n       row.getDouble(1),\n       row.getString(2)\n     ))}.\naggregateByKey(scala.collection.mutable.HashSet.empty[(Double, String)])(_+_, _++_).\nmapValues(_.toArray).\nmapValues{\n  variants =>\n  val buffer = scala.collection.mutable.ArrayBuffer.empty[Double]\n\n  val cadd = variants.map(_._1)\n  buffer += StatUtils.mean(cadd)\n  buffer += StatUtils.variance(cadd)\n  buffer += cadd.filter(_ > 17.0).size.toDouble\n\n  buffer.toArray\n}",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "make_request: (cols: String)String\nimport org.apache.spark.sql.functions.lit\nimport org.apache.commons.math3.stat._\ninitial_by_patient: org.apache.spark.rdd.RDD[(String, Array[Double])] = MapPartitionsRDD[16] at mapValues at <console>:94\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "MapPartitionsRDD[16] at mapValues at &lt;console&gt;:94"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 4
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -137,18 +97,7 @@
     },
     "cell_type" : "code",
     "source" : "import org.apache.spark.mllib.feature.StandardScaler\n\nval samples = initial_by_patient.mapValues{org.apache.spark.mllib.linalg.Vectors.dense(_)}\nval stdscaler = new StandardScaler(withMean = true, withStd = true).fit(samples.values)\n\ninitial_by_patient = samples.mapValues{ stdscaler.transform(_).toArray }",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "import org.apache.spark.mllib.feature.StandardScaler\nsamples: org.apache.spark.rdd.RDD[(String, org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[17] at mapValues at <console>:76\nstdscaler: org.apache.spark.mllib.feature.StandardScalerModel = org.apache.spark.mllib.feature.StandardScalerModel@2bdda4b7\ninitial_by_patient: org.apache.spark.rdd.RDD[(String, Array[Double])] = MapPartitionsRDD[23] at mapValues at <console>:79\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "MapPartitionsRDD[23] at mapValues at &lt;console&gt;:79"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 5
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -161,18 +110,7 @@
     },
     "cell_type" : "code",
     "source" : "class C_Element(id:Int, name: String, features: Array[Double]) extends Serializable {\n  val _id = id\n  val _name : String = name\n  val _features : Array[Double] = features\n\n  def getId() : Int = {\n    val id = _id\n    return id\n  }\n\n  def getFeatures() : Array[Double] = {\n    val features = _features\n    return features\n  }\n\n  def getName() : String = {\n    val name = _name\n    return name\n  }\n\n  override def toString(): String = {\n    val id = _id\n    val name = _name\n    \"Element \" + id + \" (\" + name + \")\"\n  }\n\n}",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "defined class C_Element\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : ""
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 6
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -185,18 +123,7 @@
     },
     "cell_type" : "code",
     "source" : "var U = initial_by_patient.zipWithIndex.map{x => new C_Element(x._2.toInt, x._1._1, x._1._2) }.persist\n\nval nb_elements = U.count",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "U: org.apache.spark.rdd.RDD[C_Element] = MapPartitionsRDD[25] at map at <console>:76\nnb_elements: Long = 3\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "3"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 7
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -209,18 +136,7 @@
     },
     "cell_type" : "code",
     "source" : "import math.{sqrt, pow, abs}\n\ndef euclidean_distance(e1: Array[Double], e2: Array[Double]) = {\n  sqrt((e1 zip e2).map{ case (v1, v2) => pow(v1 - v2, 2) }.sum)\n}\n\ndef manhattan_distance(e1: Array[Double], e2: Array[Double]) = {\n  (e1 zip e2).map{ case (v1, v2) => abs(v1 - v2) }.sum\n}",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "import math.{sqrt, pow, abs}\neuclidean_distance: (e1: Array[Double], e2: Array[Double])Double\nmanhattan_distance: (e1: Array[Double], e2: Array[Double])Double\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : ""
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 8
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -233,18 +149,7 @@
     },
     "cell_type" : "code",
     "source" : "// Create the unscaled matrix of similarity (by calculating the distance between elements and inverting it)\n  val raw_S = U.cartesian(U).map{\n    case (e1, e2) =>\n      if (e1.getId == e2.getId) {\n        (e1.getId) -> (e2.getId, 0.0) //Identity case\n      }\n      else {\n        (e1.getId) -> (e2.getId, -manhattan_distance(e1.getFeatures, e2.getFeatures).toDouble)\n      }\n  }.persist",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "raw_S: org.apache.spark.rdd.RDD[(Int, (Int, Double))] = MapPartitionsRDD[27] at map at <console>:82\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "MapPartitionsRDD[27] at map at &lt;console&gt;:82"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 9
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -257,18 +162,7 @@
     },
     "cell_type" : "code",
     "source" : "//1) Find the min and max of the matrix\nval minKey2 = raw_S.min()(new Ordering[Tuple2[Int, Tuple2[Int, Double]]]() {\n  override def compare(x: (Int, (Int, Double)), y: (Int, (Int, Double))): Int = \n      Ordering[Double].compare(x._2._2, y._2._2)\n})\n\nprintln(\"max:\" + 0 + \" ; min:\" + minKey2)\n\n//2) Prepare scaler to [-1,0]\nval std_scaler = - minKey2._2._2\n\n//3) Map the matrix to the scaled results, and shift values by 1 to reach the [0,1] range\nval S = raw_S.mapValues{ case (id, x) => (id, x/std_scaler + 1.0) }.coalesce(nb_partitions)",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "max:0 ; min:(0,(2,-5.736039964960632))\nminKey2: (Int, (Int, Double)) = (0,(2,-5.736039964960632))\nstd_scaler: Double = 5.736039964960632\nS: org.apache.spark.rdd.RDD[(Int, (Int, Double))] = CoalescedRDD[29] at coalesce at <console>:97\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "CoalescedRDD[29] at coalesce at &lt;console&gt;:97"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 12
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -281,18 +175,7 @@
     },
     "cell_type" : "code",
     "source" : "import org.apache.hadoop.fs._\nimport java.net.URI\n\nvar fs:FileSystem = FileSystem.get(new URI(output_path + output_name + \"_S\"), sc.hadoopConfiguration)\nfs.delete(new Path(output_path + output_name + \"_S\"), true) // \"True\" to activate recursive deletion of files if it is a folder\nS.saveAsObjectFile(output_path + output_name + \"_S\")\n\nfs = FileSystem.get(new URI(output_path + output_name + \"_U\"), sc.hadoopConfiguration)\nfs.delete(new Path(output_path + output_name + \"_U\"), true)\nU.map{e => (e.getId, e.getName)}.saveAsObjectFile(output_path + output_name + \"_U\")",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "import org.apache.hadoop.fs._\nimport java.net.URI\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_1671668272_9, ugi=ndewit (auth:SIMPLE)]]\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_1671668272_9, ugi=ndewit (auth:SIMPLE)]]\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : ""
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 13
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : {
       "trusted" : true,

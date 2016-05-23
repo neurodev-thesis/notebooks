@@ -49,6 +49,10 @@
     "cell_type" : "markdown",
     "source" : "##Input retrieval"
   }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We retrieve our elements with their aligned features (numerical vectors of the same size)"
+  }, {
     "metadata" : {
       "trusted" : true,
       "input_collapsed" : false,
@@ -71,7 +75,7 @@
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
-    "source" : "##Clustering process"
+    "source" : "##Clustering process\n\nWe reach the core of the clustering process. At first, we simply train a K-Means model based on our input features and predict a cluster attribution based on it. However, we then check the number of elements contained into each created cluster ; if any cluster contains less element than requested by the variable *outliers_limit*, these elements considered as outliers are explicitly taken out of our input list, and the process is started again until no cluster is smaller than the imposed limit."
   }, {
     "metadata" : {
       "trusted" : true,
@@ -121,6 +125,10 @@
       "execution_count" : 4
     } ]
   }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We retrieve the list of phenotypes (HPO terms) for each patient."
+  }, {
     "metadata" : {
       "trusted" : true,
       "input_collapsed" : false,
@@ -141,13 +149,17 @@
       "execution_count" : 5
     } ]
   }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We list all patients appearing in each cluster"
+  }, {
     "metadata" : {
       "trusted" : true,
       "input_collapsed" : false,
       "collapsed" : false
     },
     "cell_type" : "code",
-    "source" : "//Listing all patients appearing in each cluster\n\nval patients_by_cluster = predicted_clusters.\nmap{case (patient, cluster) => (cluster, patient)}.reduceByKey(_ + \", \" + _)",
+    "source" : "val patients_by_cluster = predicted_clusters.\nmap{case (patient, cluster) => (cluster, patient)}.reduceByKey(_ + \", \" + _)",
     "outputs" : [ {
       "name" : "stdout",
       "output_type" : "stream",
@@ -160,6 +172,10 @@
       "output_type" : "execute_result",
       "execution_count" : 6
     } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We print all observations related to our clustering results:\n* for each cluster, we count the number of patients per population, and indicate the percentage of the people of this population it represents.\n* we count the average number of HPO terms per patient, averaged over the cluster\n* we list the HPO terms of each patient separately"
   }, {
     "metadata" : {
       "trusted" : true,

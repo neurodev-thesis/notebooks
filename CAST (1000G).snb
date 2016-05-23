@@ -119,7 +119,7 @@
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
-    "source" : "##Clustering evaluation\n\nWe evaluate the quality of the clustering using the true labels of our samples. The evaluation index is called Rand Index, and its result is found between 0 and 1, with 1 being a perfect clustering."
+    "source" : "##Clustering evaluation\n\nTo prepare for the evaluation, we collect the true labels associated to our patients. As clusters are identified by numerical indices in our clustering, we also map these labels to a corresponding integer."
   }, {
     "metadata" : {
       "trusted" : true,
@@ -140,6 +140,10 @@
       "output_type" : "execute_result",
       "execution_count" : 18
     } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We evaluate the quality of the clustering using the true labels of our samples. The evaluation index is called Rand Index, and its result is found between 0 and 1, with 1 being a perfect clustering."
   }, {
     "metadata" : {
       "trusted" : true,
@@ -185,6 +189,10 @@
       "execution_count" : 20
     } ]
   }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We finally reach the core of the Smart-CAST algorithm.\n\nStarting with our original range of thresholds, we pick m thresholds inside that range and perform CAST clustering and its evaluation in parallel over worker nodes. When all nodes finish, the results are compared and we determine the new range, narrowed down, for the next iteration.\n\nThe cycle goes on until the difference between the range covers less than the given stop value (a certain precision has been reached) or the maximum number of iterations already took place."
+  }, {
     "metadata" : {
       "trusted" : true,
       "input_collapsed" : false,
@@ -228,6 +236,10 @@
       "output_type" : "execute_result",
       "execution_count" : 22
     } ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We print all observations related to our clustering results:\nfor each cluster, we count the number of patients per population, and indicate the percentage of the people of this population it represents."
   }, {
     "metadata" : {
       "trusted" : true,

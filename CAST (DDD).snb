@@ -23,7 +23,7 @@
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
-    "source" : "We define the parameters of the process:\n* the path to our HDFS\n* the common path to the input files (similarity matrix S and set of elements U)\n* the path to the file containing the patients' phenotypes\n* the output path to print out results to HDFS\n\n* the affinity threshold\n\n* the minimal number of occurrences of a phenotype for it to be displayed in the output"
+    "source" : "We define the parameters of the process:\n* the path to our HDFS\n* the common path to the input files (similarity matrix S and set of elements U)\n* the path to the file containing the patients' phenotypes\n* the output path to print out results to HDFS\n\n* the affinity threshold"
   }, {
     "metadata" : {
       "trusted" : true,
@@ -32,18 +32,7 @@
     },
     "cell_type" : "code",
     "source" : "val hdfs_path = \"hdfs:/user/ndewit/\"\nval input_path = hdfs_path + \"CASTUtils_DDD_metadata\"\nval phenotypes_path = hdfs_path + \"datasets/ddd/ddd3_ega-phenotypes.txt\"\nval output_path = hdfs_path + \"DDD_CAST_results.txt\"\n\nval threshold = 0.8",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "hdfs_path: String = hdfs:/user/ndewit/\ninput_path: String = hdfs:/user/ndewit/CASTUtils_DDD_metadata\nphenotypes_path: String = hdfs:/user/ndewit/datasets/ddd/ddd3_ega-phenotypes.txt\noutput_path: String = hdfs:/user/ndewit/DDD_CAST_results.txt\nthreshold: Double = 0.8\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "0.8"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 29
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -56,18 +45,7 @@
     },
     "cell_type" : "code",
     "source" : "var name_by_id = sc.objectFile[(Int, String)](input_path + \"_U\")\nval nb_elements = name_by_id.count.toInt\nval all_ids = name_by_id.keys.collect\n\nval S = sc.broadcast{\n  sc.objectFile[(Int, (Int, Double))](input_path + \"_S\").\n  aggregateByKey(scala.collection.mutable.HashSet.empty[(Int, Double)])(_+_, _++_).\n  mapValues(_.toMap[Int, Double]).collectAsMap\n}",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "name_by_id: org.apache.spark.rdd.RDD[(Int, String)] = MapPartitionsRDD[55] at objectFile at <console>:69\nnb_elements: Int = 3\nall_ids: Array[Int] = Array(0, 1, 2)\nS: org.apache.spark.broadcast.Broadcast[scala.collection.Map[Int,scala.collection.immutable.Map[Int,Double]]] = Broadcast(30)\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "Broadcast(30)"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 30
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -80,18 +58,7 @@
     },
     "cell_type" : "code",
     "source" : "def add_affinities(a: scala.collection.mutable.Map[Int, Double], S_row: Map[Int, Double]): Unit = {\n  for (element <- a) {\n    val id : Int = element._1\n    val new_affinity : Double = element._2 + S_row(id)\n    a -= id\n    a += (id -> new_affinity)\n  }\n}\n\ndef remove_affinities(a: scala.collection.mutable.Map[Int, Double], S_row: Map[Int, Double]): Unit = {\n  for (element <- a) {\n    val id : Int = element._1\n    val new_affinity : Double = element._2 - S_row(id)\n    a -= id\n    a += (id -> new_affinity)\n  }\n}",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "add_affinities: (a: scala.collection.mutable.Map[Int,Double], S_row: Map[Int,Double])Unit\nremove_affinities: (a: scala.collection.mutable.Map[Int,Double], S_row: Map[Int,Double])Unit\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : ""
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 31
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -104,18 +71,7 @@
     },
     "cell_type" : "code",
     "source" : "//C : Set containing the already closed clusters\nval C = scala.collection.mutable.Set.empty[(Int, Int)] //(Sample ID, Cluster)\nvar cluster_id = 0\n\n// We ground U into a non-RDD mutable Set\nval mut_U = scala.collection.mutable.Set.empty[Int] ++ all_ids\n\n// We do the whole thing while there are still elements in U\nwhile (!mut_U.isEmpty){\n\n  val remaining = mut_U.size\n  //println(s\"t=$threshold: $remaining elements remaining in U...\")\n\n  // Open a new current, open cluster of elements\n  var C_open = scala.collection.mutable.Set.empty[Int]\n\n  // Set all affinities wrt this new cluster to 0\n  var affinities = scala.collection.mutable.Map[Int, Double]() ++ all_ids.map(id => (id, 0.0)).toMap\n\n  var change_occurred : Boolean = false\n\n\n  do {\n\n    change_occurred = false\n\n\n    // ADD PHASE: Add high affinity elements to the current cluster\n\n    //println(\"-- ADD --\")\n\n    var max_element = -1\n    var max_affinity : Double = 0\n\n    // Avoid exceptions due to a max/reduce/maxBy on an empty collection\n    if (!mut_U.isEmpty) {\n\n      max_element = mut_U.maxBy(e => affinities(e))\n      max_affinity = affinities(max_element)\n      //println(s\"Max of U is $max_element with affinity $max_affinity\")\n    }\n\n    // While the last selected element is over the threshold\n    while ((!mut_U.isEmpty) && (max_affinity >= threshold*C_open.size)) {\n\n      //println(\"... and it is over threshold\")\n\n      val to_rem = mut_U.find(x => x == max_element).head\n      C_open += to_rem\n      mut_U -= to_rem\n\n      add_affinities(affinities, S.value.apply(max_element))\n\n      // We find the next maximal element\n      if (!mut_U.isEmpty) {\n        max_element = mut_U.maxBy(e => affinities(e))\n        max_affinity = affinities(max_element)\n        //println(s\"New max of U is $max_element with affinity $max_affinity\")\n      }\n\n      change_occurred = true\n    }\n\n\n    //-----------------------------------\n\n\n    // REMOVE PHASE : Remove low affinity elements to the current cluster\n\n    //println(\"-- REMOVE --\")\n\n    var min_element = -1\n    var min_affinity : Double = 0\n\n    if (!C_open.isEmpty) {\n\n      min_element = C_open.minBy(e => affinities(e))\n      min_affinity = affinities(min_element)\n\n      //println(s\"Min of C_open is $min_element with affinity $min_affinity\")\n    }\n\n    while (!C_open.isEmpty && min_affinity < threshold*C_open.size) {\n\n      //println(\"... and it is under threshold\")\n\n      val to_add = C_open.find(x => x == min_element).head\n      C_open -= to_add\n      mut_U += to_add\n\n      remove_affinities(affinities, S.value.apply(min_element))\n\n      //Find the next minimal element\n      if (!C_open.isEmpty) {\n        min_element = C_open.minBy(e => affinities(e))\n        min_affinity = affinities(min_element)\n        //println(s\"New min of U is $min_element with affinity $min_affinity\")\n      }\n\n      change_occurred = true\n    }\n\n\n  } while(change_occurred)\n\n  //println(s\"No changes occurred: this cluster (id $cluster_id) is complete.\\n\")\n\n  C_open.foreach{ e => C += ((e, cluster_id)) }\n  cluster_id = cluster_id + 1\n\n}",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "C: scala.collection.mutable.Set[(Int, Int)] = Set((0,0), (1,1), (2,2))\ncluster_id: Int = 3\nmut_U: scala.collection.mutable.Set[Int] = Set()\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : ""
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 32
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -132,18 +88,11 @@
     },
     "cell_type" : "code",
     "source" : "import org.apache.hadoop.fs._\nimport java.io.BufferedOutputStream\n\nval fs = FileSystem.get(sc.hadoopConfiguration)\n\nclass TextFile(file_path : String) {\n  val physical_file = fs.create(new Path(file_path))\n  val stream = new BufferedOutputStream(physical_file)\n\n  def write(text : String) : Unit = {\n    stream.write(text.getBytes(\"UTF-8\"))\n  }\n\n  def close() : Unit = {\n    stream.close()\n  }\n}\n\nval t = new TextFile(output_path)",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "import org.apache.hadoop.fs._\nimport java.io.BufferedOutputStream\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_2070907832_9, ugi=ndewit (auth:SIMPLE)]]\ndefined class TextFile\nt: TextFile = $iwC$$iwC$TextFile@60db6493\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "$line67.$read$$iwC$$iwC$TextFile@60db6493"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 33
-    } ]
+    "outputs" : [ ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We retrieve the list of phenotypes (HPO terms) for each patient."
   }, {
     "metadata" : {
       "trusted" : true,
@@ -152,18 +101,11 @@
     },
     "cell_type" : "code",
     "source" : "val pheno_data = sc.textFile(phenotypes_path)\nval phenotypes = pheno_data.map(_.split('\\t')).map{\n  x =>\n  val terms = x(4).split(\";\")\n  x(0) -> terms\n}",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "pheno_data: org.apache.spark.rdd.RDD[String] = MapPartitionsRDD[62] at textFile at <console>:73\nphenotypes: org.apache.spark.rdd.RDD[(String, Array[String])] = MapPartitionsRDD[64] at map at <console>:74\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "MapPartitionsRDD[64] at map at &lt;console&gt;:74"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 34
-    } ]
+    "outputs" : [ ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We print all observations related to our clustering results:\n* for each cluster, we count the number of patients per population, and indicate the percentage of the people of this population it represents.\n* we count the average number of HPO terms per patient, averaged over the cluster\n* we list the HPO terms of each patient separately"
   }, {
     "metadata" : {
       "trusted" : true,
@@ -172,18 +114,7 @@
     },
     "cell_type" : "code",
     "source" : "val predicted_clusters = sc.parallelize(C.toSeq)\nval cluster_by_name = name_by_id.join(predicted_clusters).values.persist\n\nval phenos_by_cluster = cluster_by_name.join(phenotypes).values\n\n//Listing all patients appearing in each cluster\nval patients_by_cluster = cluster_by_name.\nmap{case (patient, cluster) => (cluster, patient)}.reduceByKey(_ + \", \" + _)\n\n// We count the number of occurrences by phenotype, by cluster\nval counts_by_pheno = phenos_by_cluster.map{\n  case(cluster, pheno_list) => pheno_list.map(e => ((cluster, e), 1))\n}.flatMap{a => a.toList}.reduceByKey(_ + _).persist\n\n// We count the number of occurrences by phenotype over all clusters\nval counts_overall = counts_by_pheno.map{\n  case ((cluster, hpo), cnt) =>\n  (hpo, cnt)\n}.reduceByKey(_ + _)\n\n// We use the previous RDD to add the corresponding percentage of phenotypes to each occurrence count\nval counts_by_cluster_with_percentages = counts_by_pheno.map{\n  case ((cluster, hpo), cnt) =>\n  (hpo, (cluster, cnt))\n}.join(counts_overall).map{\n  case (hpo, ((cluster, cnt), tot)) =>\n  (cluster, (hpo, cnt, cnt*100.0/tot))\n}.groupByKey\n\nval nb_pheno_by_patient_by_cluster = cluster_by_name.join(phenotypes).map{\n  case (patient, (cluster, hpo_list)) =>\n  (cluster, (patient, hpo_list.size.toDouble, hpo_list))\n}.aggregateByKey(scala.collection.mutable.HashSet.empty[(String, Double, Array[String])])(_+_, _++_).\nmapValues(_.toArray)\n\nval avg_pheno_by_cluster = nb_pheno_by_patient_by_cluster.mapValues{\n  list =>\n  val sz_list = list.length\n  list.map(_._2).sum / sz_list\n}\n\ncounts_by_cluster_with_percentages.\njoin(patients_by_cluster).\njoin(nb_pheno_by_patient_by_cluster).\njoin(avg_pheno_by_cluster).\ncollect.foreach{\n  case (cluster, (((hpo_array, patients_list), patients_and_hpos), avg_nb_hpos)) =>\n  var txt = \"\\n\\n\\n--- Cluster \" + cluster.toString + \" ---\"\n  //println(txt)\n  t.write(txt + \"\\n\")\n\n  val sz = patients_list.split(\",\").size\n  val form1 = if (sz > 1) { \"s\" } else { \"\" }\n  val form2 = if (sz < 20) { \" : \" + patients_list.toString } else { \".\" }\n  txt = \"Total of \" + sz.toString + \" patient\" + form1 + form2\n  //println(txt)\n  t.write(txt + \"\\n\")\n\n  txt = \"Average nb of HPOs per patient: \" + avg_nb_hpos.toString\n  //println(txt)\n  t.write(txt + \"\\n\")\n\n  patients_and_hpos.foreach{\n    case (patient, nb_hpo, hpos) =>\n    txt = \"Patient \" + patient + \"has \" + nb_hpo.toInt.toString + \" HPO terms: \" + hpos.mkString(\", \")\n    //println(txt)\n    t.write(txt + \"\\n\")\n  }\n\n  hpo_array.toArray.sortWith(_._2 > _._2).foreach{\n    case (hpo, cnt, perc) =>\n    val form3 = if (cnt > 1) { \"people\" } else { \"person\" }\n    val formatted_res = \"%-40s: %d %s (%.1f%% of the ppl having this HPO)\".format(hpo, cnt, form3, perc)\n    //println(formatted_res)\n    t.write(formatted_res + \"\\n\")\n  }\n}",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "\n\n\n--- Cluster 0 ---\nTotal of 1 patient : DDDP101968\nAverage nb of HPOs per patient: 7.0\nPatient DDDP101968has 7 HPO terms: Global developmental delay, Specific learning disability, Hyperacusis, Telecanthus, Slanting of the palpebral fissure, Synophrys, Short fifth metatarsal\nHyperacusis                             : 1 person (100.0% of the ppl having this HPO)\nGlobal developmental delay              : 1 person (50.0% of the ppl having this HPO)\nSlanting of the palpebral fissure       : 1 person (100.0% of the ppl having this HPO)\nSpecific learning disability            : 1 person (100.0% of the ppl having this HPO)\nSynophrys                               : 1 person (100.0% of the ppl having this HPO)\nShort fifth metatarsal                  : 1 person (100.0% of the ppl having this HPO)\nTelecanthus                             : 1 person (100.0% of the ppl having this HPO)\n\n\n\n--- Cluster 1 ---\nTotal of 1 patient : DDDP102189\nAverage nb of HPOs per patient: 9.0\nPatient DDDP102189has 9 HPO terms: Global developmental delay, Microcephaly, Glabellar hemangioma, Preauricular skin tag, Hypoplastic nostrils, Micrognathia, Growth delay, Inguinal hernia, Agenesis of corpus callosum\nGlobal developmental delay              : 1 person (50.0% of the ppl having this HPO)\nAgenesis of corpus callosum             : 1 person (100.0% of the ppl having this HPO)\nGrowth delay                            : 1 person (100.0% of the ppl having this HPO)\nMicrognathia                            : 1 person (100.0% of the ppl having this HPO)\nGlabellar hemangioma                    : 1 person (100.0% of the ppl having this HPO)\nHypoplastic nostrils                    : 1 person (100.0% of the ppl having this HPO)\nPreauricular skin tag                   : 1 person (100.0% of the ppl having this HPO)\nMicrocephaly                            : 1 person (100.0% of the ppl having this HPO)\nInguinal hernia                         : 1 person (100.0% of the ppl having this HPO)\n\n\n\n--- Cluster 2 ---\nTotal of 1 patient : DDDP111239\nAverage nb of HPOs per patient: 8.0\nPatient DDDP111239has 8 HPO terms: Cleft soft palate, Unilateral renal agenesis, Thoracic hemivertebrae, Hearing impairment, Peripheral pulmonary artery stenosis, Delayed speech and language development, Intrahepatic cholestasis, Prominent metopic ridge\nUnilateral renal agenesis               : 1 person (100.0% of the ppl having this HPO)\nPeripheral pulmonary artery stenosis    : 1 person (100.0% of the ppl having this HPO)\nIntrahepatic cholestasis                : 1 person (100.0% of the ppl having this HPO)\nCleft soft palate                       : 1 person (100.0% of the ppl having this HPO)\nProminent metopic ridge                 : 1 person (100.0% of the ppl having this HPO)\nThoracic hemivertebrae                  : 1 person (100.0% of the ppl having this HPO)\nHearing impairment                      : 1 person (100.0% of the ppl having this HPO)\nDelayed speech and language development : 1 person (100.0% of the ppl having this HPO)\npredicted_clusters: org.apache.spark.rdd.RDD[(Int, Int)] = ParallelCollectionRDD[65] at parallelize at <console>:84\ncluster_by_name: org.apache.spark.rdd.RDD[(String, Int)] = MapPartitionsRDD[69] at values at <console>:85\nphenos_by_cluster: org.apache.spark.rdd.RDD[(Int, Array[String])] = MapPartitionsRDD[73] at values at <console>:87\npatients_by_cluster: org.apache.spark.rdd.RDD[(Int, String)] = ShuffledRDD[75] at reduceByKey at <console>:91\ncounts_by_pheno: org.apache.spark.rdd.RDD[((Int, String), Int)] = ShuffledRDD[78] at reduceByKey at <console>:96\ncounts_overall: org.apache.spark.rdd.RDD[(String, Int)] = ShuffledRDD[80] at reduceByKey at <console>:102\ncounts_by_cluster_with_percentages: org.apache.spark.rdd.RDD[(Int, Iterable[(String, Int, Double)])] = ShuffledRDD[86] at groupByKe..."
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : ""
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 35
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : {
       "trusted" : true,
@@ -192,14 +123,7 @@
     },
     "cell_type" : "code",
     "source" : "t.close()",
-    "outputs" : [ {
-      "metadata" : { },
-      "data" : {
-        "text/html" : ""
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 36
-    } ]
+    "outputs" : [ ]
   } ],
   "nbformat" : 4
 }

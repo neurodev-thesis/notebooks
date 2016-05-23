@@ -32,18 +32,7 @@
     },
     "cell_type" : "code",
     "source" : "val nb_patients = 3\nval reject_list = Array(\"\")\nval pathVariants = \"/user/hive/warehouse/1000g.db/exomes_1000g\" //or \"/user/hive/warehouse/1000g.db/ddd\"\nval hdfs_path = \"hdfs:/user/ndewit/\"\nval output_path = \"aligned_1000G_variants\"",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "nb_patients: Int = 3\nreject_list: Array[String] = Array(\"\")\npathVariants: String = /user/hive/warehouse/1000g.db/ddd\noutput_path: String = hdfs:/user/ndewit/\ndest: String = aligned_DDD_variants\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "aligned_DDD_variants"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 19
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -56,18 +45,7 @@
     },
     "cell_type" : "code",
     "source" : "val sqlContext = new org.apache.spark.sql.SQLContext(sc)\nsqlContext.sql(\"SET spark.sql.parquet.binaryAsString=true\")\nimport sqlContext.implicits._\n\nval parquetFile = sqlContext.read.parquet(pathVariants)\nparquetFile.registerTempTable(\"variantData\")",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "sqlContext: org.apache.spark.sql.SQLContext = org.apache.spark.sql.SQLContext@6a6fb99\nimport sqlContext.implicits._\nparquetFile: org.apache.spark.sql.DataFrame = [id: int, platform: string, outsourcing: string, project_id: int, run_label: string, patient: string, pathology: string, partition: int, sample_type: string, chr: string, pos: int, reference: string, alternative: string, change_type: string, hgvs_protein: string, hgvs_dna: string, gene_symbol: string, exon_intron_rank: int, exon_intron_total: int, cdna_pos: int, cdna_length: int, cds_pos: int, cds_length: int, protein_pos: int, protein_length: int, gene_ensembl: string, num_genes: int, biotype: string, transcript_ensembl: string, transcript_uniprot_id: string, transcript_uniprot_acc: string, transcript_refseq_prot: string, tran..."
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : ""
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 20
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -80,18 +58,11 @@
     },
     "cell_type" : "code",
     "source" : "//For 1000G\nval patients_id = sqlContext.\nsql(\"SELECT DISTINCT patient FROM variantData \" +\n    \" LIMIT \" + nb_patients.toString).\nmap(_.getString(0)).collect\n\n//Alternatively, for DDD\n/*\nval base_path = \"datasets/ddd/\"\nval sourceFile = base_path + \"ddd3_family_relationships.txt\" // + cache if dataset big\nval source_data = sc.textFile(sourceFile)\nval families = source_data.map(_.split('\\t')).filter(_(2) != \"0\").map(x => (x(1), x(2), x(3)))\nval patients_id = families.map(_._1).take(nb_patients)\n*/",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "base_path: String = datasets/ddd/\nsourceFile: String = datasets/ddd/ddd3_family_relationships.txt\nsource_data: org.apache.spark.rdd.RDD[String] = MapPartitionsRDD[96] at textFile at <console>:86\nfamilies: org.apache.spark.rdd.RDD[(String, String, String)] = MapPartitionsRDD[99] at map at <console>:87\npatients_id: Array[String] = Array(DDDP101968, DDDP102189, DDDP111239)\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "<div class=\"container-fluid\"><div><div class=\"col-md-12\"><div>\n      <script data-this=\"{&quot;dataId&quot;:&quot;anonea38f51f2010d1b85c4e5f34287fa4f0&quot;,&quot;dataInit&quot;:[{&quot;string value&quot;:&quot;DDDP101968&quot;},{&quot;string value&quot;:&quot;DDDP102189&quot;},{&quot;string value&quot;:&quot;DDDP111239&quot;}],&quot;genId&quot;:&quot;1299844233&quot;}\" type=\"text/x-scoped-javascript\">/*<![CDATA[*/req(['../javascripts/notebook/playground','../javascripts/notebook/magic/tableChart'], \n      function(playground, _magictableChart) {\n        // data ==> data-this (in observable.js's scopedEval) ==> this in JS => { dataId, dataInit, ... }\n        // this ==> scope (in observable.js's scopedEval) ==> this.parentElement ==> div.container below (toHtml)\n\n        playground.call(data,\n                        this\n                        ,\n                        {\n    \"f\": _magictableChart,\n    \"o\": {\"headers\":[\"string value\"],\"nrow\":3,\"shown\":3,\"width\":600,\"height\":400}\n  }\n  \n                        \n                        \n                      );\n      }\n    );/*]]>*/</script>\n    </div></div></div></div>"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 21
-    } ]
+    "outputs" : [ ]
+  }, {
+    "metadata" : { },
+    "cell_type" : "markdown",
+    "source" : "We can later restrict the selection of variants to the ones contained into specific genes. This list of genes, based on the identified causal genes in the literature, is built here."
   }, {
     "metadata" : {
       "trusted" : true,
@@ -113,18 +84,7 @@
     },
     "cell_type" : "code",
     "source" : "def make_request(cols : String) : String = {\n  var request = \"SELECT \" + cols + \" \"\n  request += \"FROM variantData \"\n  request += \"WHERE (\"\n  request += \"filters = 'PASS' \"\n  request += \"AND allele_num <= 2 \"\n  request += \"AND gene_symbol IS NOT NULL \"\n  //request += \"AND consensus_maf < 0.01 \"\n  request += \"AND chr = 22 \"\n  request += \")\"\n  return request\n}\n\nimport org.apache.spark.sql.functions.lit\n\nval initial_by_patient = sqlContext.\nsql(make_request(\"patient, pos, alternative\")).\nwhere($\"patient\".isin(patients_id.map(lit(_)):_*)).\nwhere(!$\"patient\".isin(reject_list.map(lit(_)):_*)).\n//join(gene_list, $\"gene_symbol\" === $\"gene_list\").\n//drop(\"gene_symbol\").\nmap{ row => (row.getString(0), (row.getInt(1), row.getString(2))) }.\ndistinct.\naggregateByKey(scala.collection.mutable.HashSet.empty[(Int, String)])(_+_, _++_).\nmapValues(_.toArray)",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "make_request: (cols: String)String\nimport org.apache.spark.sql.functions.lit\ninitial_by_patient: org.apache.spark.rdd.RDD[(String, Array[(Int, String)])] = MapPartitionsRDD[110] at mapValues at <console>:110\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "MapPartitionsRDD[110] at mapValues at &lt;console&gt;:110"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 22
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -137,11 +97,7 @@
     },
     "cell_type" : "code",
     "source" : "/*initial_by_patient.mapValues(_.length).collect.foreach{\n  e =>\n  println(\"Nb of variants for patient \" + e._1 + \": \" + e._2) \n}*/",
-    "outputs" : [ {
-      "ename" : "Error",
-      "output_type" : "error",
-      "traceback" : [ "Incomplete (hint: check the parenthesis)" ]
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -154,18 +110,7 @@
     },
     "cell_type" : "code",
     "source" : "val all_pos = sqlContext.\nsql(make_request(\"patient, pos\")).\nwhere($\"patient\".isin(patients_id.map(lit(_)):_*)).\nwhere(!$\"patient\".isin(reject_list.map(lit(_)):_*)).\nselect(\"pos\").distinct.\nmap(_.getInt(0)).\nmap((0, _)).groupByKey.values. //trick to group all variants into one RDD row\nmap(_.toArray)\n\nval all_pos_per_patient = sc.parallelize(patients_id).cartesian(all_pos)",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "all_pos: org.apache.spark.rdd.RDD[Array[Int]] = MapPartitionsRDD[123] at map at <console>:106\nall_pos_per_patient: org.apache.spark.rdd.RDD[(String, Array[Int])] = CartesianRDD[125] at cartesian at <console>:108\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "CartesianRDD[125] at cartesian at &lt;console&gt;:108"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 24
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -178,18 +123,7 @@
     },
     "cell_type" : "code",
     "source" : "val samples = initial_by_patient.join(all_pos_per_patient).map{\n\n  case (patient, (features, all_pos)) =>\n\n  val pos = features.map(_._1) //list of positions present in the patient\n\n  val not_appearing = all_pos.filter(!pos.contains(_)). //for all positions not appearing in the patient\n  flatMap{\n    int_pos =>\n    val pos = BigDecimal(int_pos)\n    Array((pos + BigDecimal(0.1), 0.0),\n          (pos + BigDecimal(0.2), 0.0),\n          (pos + BigDecimal(0.3), 0.0),\n          (pos + BigDecimal(0.4), 0.0)\n         ).toList\n    //We add the four nucleotides as zeros\n  }\n\n  var features_four = features.flatMap{\n    case (int_pos, alt) =>\n    val pos = int_pos\n    var a = 0.0\n    var c = 0.0\n    var t = 0.0\n    var g = 0.0\n    if (alt == \"A\") { a = 1.0 }\n    else if (alt == \"C\") { c = 1.0 }\n    else if (alt == \"T\") { t = 1.0 }\n    else if (alt == \"G\") { g = 1.0 }\n\n    Array (\n      (pos + BigDecimal(0.1), a), \n      (pos + BigDecimal(0.2), c), \n      (pos + BigDecimal(0.3), t), \n      (pos + BigDecimal(0.4), g)\n    ).toList\n  }\n\n  //Manipulation to avoid multiple alleles for one position: group variants by common position,\n  //take only the first element of each resulting list (a rare but possible occurrece)\n  features_four = features_four.groupBy(_._1).map{ case (pos, list) => (pos, list.apply(0)._2)}.toArray\n\n  //Join both lists, order them by growing position and discard the positions to keep only the created features\n  val ordered_array = features_four.union(not_appearing).sortBy(_._1).map(_._2)\n\n  (patient, ordered_array)\n}.map{\n  case (patient, features) =>\n  (patient, org.apache.spark.mllib.linalg.Vectors.dense(features))\n}",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "samples: org.apache.spark.rdd.RDD[(String, org.apache.spark.mllib.linalg.Vector)] = MapPartitionsRDD[130] at map at <console>:141\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : "MapPartitionsRDD[130] at map at &lt;console&gt;:141"
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 25
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -202,11 +136,7 @@
     },
     "cell_type" : "code",
     "source" : "/*\n//Size = Alignment of all positions * 4 possible values for each\nsamples.mapValues(_.size).collect.foreach{\n  e =>\n  println(\"Size of alignment for patient \" + e._1 + \": \" + e._2) \n}\n*/",
-    "outputs" : [ {
-      "ename" : "Error",
-      "output_type" : "error",
-      "traceback" : [ "Incomplete (hint: check the parenthesis)" ]
-    } ]
+    "outputs" : [ ]
   }, {
     "metadata" : { },
     "cell_type" : "markdown",
@@ -219,18 +149,7 @@
     },
     "cell_type" : "code",
     "source" : "import org.apache.hadoop.fs._\nimport java.net.URI\nval fs:FileSystem = FileSystem.get(new URI(output_path), sc.hadoopConfiguration)\nfs.delete(new Path(output_path), true) // \"True\" to activate recursive deletion of files if it is a folder\n\nsamples.saveAsObjectFile(output_path)",
-    "outputs" : [ {
-      "name" : "stdout",
-      "output_type" : "stream",
-      "text" : "import org.apache.hadoop.fs._\nimport java.net.URI\nfs: org.apache.hadoop.fs.FileSystem = DFS[DFSClient[clientName=DFSClient_NONMAPREDUCE_668428907_9, ugi=ndewit (auth:SIMPLE)]]\n"
-    }, {
-      "metadata" : { },
-      "data" : {
-        "text/html" : ""
-      },
-      "output_type" : "execute_result",
-      "execution_count" : 27
-    } ]
+    "outputs" : [ ]
   } ],
   "nbformat" : 4
 }
