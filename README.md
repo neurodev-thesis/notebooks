@@ -62,12 +62,12 @@ Some examples of notebooks turned into scripts, or Scala projects, are provided 
 ### Compiling
 
 A typical Scala project has the following hierarchy:
-[project]
-&nbsp;&nbsp;project.sbt
-&nbsp;&nbsp;[src]
-&nbsp;&nbsp;&nbsp;&nbsp;[main]
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[scala]
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; project.scala
+[project]<br>
+&nbsp;&nbsp;&nbsp;project.sbt<br>
+&nbsp;&nbsp;&nbsp;[src]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[main]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[scala]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; project.scala<br>
 
 To turn a notebook into its corresponding script:
 - The content of a notebook can be exported via *File > Download as > Scala* in Spark Notebook and copied into the Scala file.
