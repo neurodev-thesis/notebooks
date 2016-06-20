@@ -61,7 +61,7 @@ Some examples of notebooks turned into scripts, or Scala projects, are provided 
 
 ### Compiling
 
-A typical Scala project has the following hierarchy:
+A typical Scala project has the following hierarchy:<br>
 [project]<br>
 &nbsp;&nbsp;&nbsp;project.sbt<br>
 &nbsp;&nbsp;&nbsp;[src]<br>
@@ -71,7 +71,7 @@ A typical Scala project has the following hierarchy:
 
 To turn a notebook into its corresponding script:
 - The content of a notebook can be exported via *File > Download as > Scala* in Spark Notebook and copied into the Scala file.
-- (Extra dependencies can be added in the sbt file)
+- (Extra dependencies can be added in the *sbt* file)
 - (Parameters can be defined through inputs rather than fixed values)
 - The script can be compiled by running *sbt package* from the project directory. The *jar* output will appear in newly creating *target* folder.
 
@@ -81,7 +81,7 @@ The skeleton of a new project is given in *simple* subfolder for convenience.
 
 Note that a pair of already compiled files (the preprocessing and K-means processing for comparing patients of 1000G against DDD) is given in the *pre-compiled script examples*. They can be run as such on a cluster.
 
-We use the following command to run our scripts on the cluster:
+We use the following command to run our scripts on the cluster:<br>
 ("<>" indicating parameters ;  parallelism and memory can moreover be tuned)
 
 *spark-submit --master yarn --deploy-mode cluster --num-executors 50 --executor-cores 1 --conf spark.eventLog.enabled=true --conf spark.eventLog.dir='<path-to-logs>' --conf spark.history.ui.port=<personal-port> --conf spark.history.fs.logDirectory='<path-to-logs>' --conf spark.default.parallelism=50 --driver-memory 4G --executor-memory 2G <path-to-our-jar-file>*
