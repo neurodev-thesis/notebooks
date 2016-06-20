@@ -59,26 +59,29 @@ The main possible combinations of applications to work on these two datasets tog
 
 Some examples of notebooks turned into scripts, or Scala projects, are provided in the *script examples* folder. Such a Scala project can be compiled via the *sbt package* command, creating a corresponding *jar* file that can be run on the cluster.
 
+### Compiling
+
 A typical Scala project has the following hierarchy:
 [project]
--- project.sbt
--- [src]
-   -- [main]
-      -- [scala]
-         -- project.scala
+&nbsp;&nbsp;project.sbt
+&nbsp;&nbsp;[src]
+&nbsp;&nbsp;&nbsp;&nbsp;[main]
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[scala]
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; project.scala
 
 To turn a notebook into its corresponding script:
 - The content of a notebook can be exported via *File > Download as > Scala* in Spark Notebook and copied into the Scala file.
-(- Extra dependencies can be added in the sbt file)
-(- Parameters can be defined through inputs rather than fixed values)
+- (Extra dependencies can be added in the sbt file)
+- (Parameters can be defined through inputs rather than fixed values)
 - The script can be compiled by running *sbt package* from the project directory. The *jar* output will appear in newly creating *target* folder.
 
 The skeleton of a new project is given in *simple* subfolder for convenience.
 
+###Running
 
 Note that a pair of already compiled files (the preprocessing and K-means processing for comparing patients of 1000G against DDD) is given in the *pre-compiled script examples*. They can be run as such on a cluster.
 
-
-We use the following command to run our scripts on the cluster ("<>" indicating parameters ;  parallelism and memory can moreover be tuned) :
+We use the following command to run our scripts on the cluster:
+("<>" indicating parameters ;  parallelism and memory can moreover be tuned)
 
 *spark-submit --master yarn --deploy-mode cluster --num-executors 50 --executor-cores 1 --conf spark.eventLog.enabled=true --conf spark.eventLog.dir='<path-to-logs>' --conf spark.history.ui.port=<personal-port> --conf spark.history.fs.logDirectory='<path-to-logs>' --conf spark.default.parallelism=50 --driver-memory 4G --executor-memory 2G <path-to-our-jar-file>*
