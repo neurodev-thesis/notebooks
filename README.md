@@ -82,6 +82,6 @@ The skeleton of a new project is given in *simple* subfolder for convenience.
 Note that a pair of already compiled files (the preprocessing and K-means processing for comparing patients of 1000G against DDD) is given in the *pre-compiled script examples*. They can be run as such on a cluster.
 
 We use the following command to run our scripts on the cluster:<br>
-("<>" indicating parameters ;  parallelism and memory can moreover be tuned)
+([] indicating parameters ;  parallelism and memory can moreover be tuned)
 
-*spark-submit --master yarn --deploy-mode cluster --num-executors 50 --executor-cores 1 --conf spark.eventLog.enabled=true --conf spark.eventLog.dir='<path-to-logs>' --conf spark.history.ui.port=<personal-port> --conf spark.history.fs.logDirectory='<path-to-logs>' --conf spark.default.parallelism=50 --driver-memory 4G --executor-memory 2G <path-to-our-jar-file>*
+*spark-submit --master yarn --deploy-mode cluster --num-executors 50 --executor-cores 1 --conf spark.eventLog.enabled=true --conf spark.eventLog.dir='[path-to-logs]' --conf spark.history.ui.port=[personal-port] --conf spark.history.fs.logDirectory='[path-to-logs]' --conf spark.default.parallelism=50 --driver-memory 4G --executor-memory 2G [path-to-our-jar-file]*
