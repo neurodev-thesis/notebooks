@@ -75,7 +75,6 @@ To turn a notebook into its corresponding script:
 
 The skeleton of a new project is given in *simple* subfolder for convenience.
 
-
 Note that a pair of already compiled files (the preprocessing and K-means processing for comparing patients of 1000G against DDD) is given in the *pre-compiled script examples*. They can be run as such on a cluster.
 
 
