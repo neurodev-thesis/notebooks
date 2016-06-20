@@ -1,0 +1,139 @@
+/* 1000G_alignment.scala */
+import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
+import org.apache.spark.SparkConf
+import org.apache.spark.rdd.RDD
+
+object 1000G_alignment {
+  def main(args: Array[String]) {
+    val conf = new SparkConf().setAppName("1000G - Alignment")
+    val sc = new SparkContext(conf)
+
+val nb_patients = if (args.length > 0) { args(0).toInt } else { 1000 }
+val reject_list = if (args.length > 1) { args(1).split(";") } else { Array("") }
+
+  /* ... new cell ... */
+
+  val sqlContext = new org.apache.spark.sql.SQLContext(sc)
+  sqlContext.sql("SET spark.sql.parquet.binaryAsString=true")
+  import sqlContext.implicits._
+  
+  
+  val pathVariants = "/user/hive/warehouse/1000g.db/exomes_1000g"
+  val parquetFile = sqlContext.read.parquet(pathVariants)
+  parquetFile.registerTempTable("variantData")
+
+  /* ... new cell ... */
+
+  val patients_id = sqlContext.
+  sql("SELECT DISTINCT patient FROM variantData LIMIT " + nb_patients.toString).
+  map(_.getString(0)).collect
+
+  /* ... new cell ... */
+
+  def make_request(cols : String) : String = {
+    var request = "SELECT " + cols + " "
+    request += "FROM variantData "
+    request += "WHERE ("
+    request += "filters = 'PASS' "
+    request += "AND allele_num <= 2 "
+    request += "AND gene_symbol IS NOT NULL "
+    request += "AND consensus_maf < 0.01 "
+    request += ")"
+    return request
+  }
+  
+  import org.apache.spark.sql.functions.lit  //lit: Creates a Column of literal value
+  
+  val initial_by_patient = sqlContext.
+  sql(make_request("patient, pos, alternative")).
+  where($"patient".isin(patients_id.map(lit(_)):_*)).
+  where(!$"patient".isin(reject_list.map(lit(_)):_*)).
+  map{ row => (row.getString(0), (row.getInt(1), row.getString(2))) }. //this line is where the processing gets looong
+  aggregateByKey(scala.collection.mutable.HashSet.empty[(Int, String)])(_+_, _++_).
+  mapValues(_.toArray)
+  
+  /*initial_by_patient.mapValues(_.length).collect.foreach{
+    e =>
+    println("Nb of variants for patient " + e._1 + ": " + e._2) 
+  }*/
+
+  /* ... new cell ... */
+
+  val all_pos = sqlContext.
+  sql(make_request("patient, pos")).
+  where($"patient".isin(patients_id.map(lit(_)):_*)).
+  where(!$"patient".isin(reject_list.map(lit(_)):_*)).
+  select("pos").distinct.
+  map(_.getInt(0)).map((0, _)).
+  groupByKey.map(_._2).map(_.toArray)
+  //RDD with one row, containing the array of all positions
+
+  /* ... new cell ... */
+
+  val all_pos_per_patient = sc.parallelize(patients_id).cartesian(all_pos)
+
+  /* ... new cell ... */
+
+  val samples = initial_by_patient.join(all_pos_per_patient).map{
+  
+    case (patient, (features, all_pos)) =>
+    
+    val pos = features.map(_._1)
+    
+    //val a = all_pos_b.value //doesn't work bc all_pos isn't originally in the closure
+    
+    val not_appearing = all_pos.filter(!pos.contains(_)).flatMap{
+      int_pos =>
+      val pos = BigDecimal(int_pos)
+      Array((pos + BigDecimal(0.1), 0.0),
+            (pos + BigDecimal(0.2), 0.0),
+            (pos + BigDecimal(0.3), 0.0),
+            (pos + BigDecimal(0.4), 0.0)
+           ).toList //when reference, leave all 4 slots to 0
+    }
+    
+    val features_four = features.flatMap{
+      case (int_pos, alt) =>
+      val pos = int_pos
+      var a = 0.0
+      var c = 0.0
+      var t = 0.0
+      var g = 0.0
+      if (alt == "A") { a = 1.0 }
+      else if (alt == "C") { c = 1.0 }
+      else if (alt == "T") { t = 1.0 }
+      else if (alt == "G") { g = 1.0 }
+      //if sth different like TG... we ignore it for now
+  
+      Array (
+        (pos + BigDecimal(0.1), a), 
+        (pos + BigDecimal(0.2), c), 
+        (pos + BigDecimal(0.3), t), 
+        (pos + BigDecimal(0.4), g)
+      ).toList
+    }
+    
+    val ordered_array = features_four.union(not_appearing).sortBy(_._1).map(_._2)
+    
+    (patient, ordered_array)
+  }.map{
+    case (patient, features) =>
+    (patient, org.apache.spark.mllib.linalg.Vectors.dense(features))
+  }
+  
+  /*
+  //Alignment of all * 4 possible values
+  samples.mapValues(_.size).collect.foreach{
+    e =>
+    println("Size of alignment for patient " + e._1 + ": " + e._2) 
+  }
+  //1 patient = ~1100 ; for 10 patients, alignment gives ~42860 => nearly all positions are different ?? :/
+  */
+
+  /* ... new cell ... */
+
+  val output_path = "hdfs:/user/ndewit/"
+  samples.saveAsObjectFile(output_path + "aligned_1000G")
+  }
+}

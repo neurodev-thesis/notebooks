@@ -1,0 +1,44 @@
+/* SimpleApp.scala */
+import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
+import org.apache.spark.SparkConf
+import org.apache.spark.rdd.RDD
+
+object SimpleApp {
+  def main(args: Array[String]) {
+    val conf = new SparkConf().setAppName("Test UI").set("spark.ui.enabled", "true").set("spark.ui.port", "4040")
+    val sc = new SparkContext(conf)
+
+  import org.apache.hadoop.fs._
+  import java.io.BufferedOutputStream
+ 
+  val fs = FileSystem.get(sc.hadoopConfiguration);
+  val output_path = "hdfs:/user/ndewit/"
+  
+  class TextFile(filename : String) {
+    val physical_file = fs.create(new Path(output_path + filename))
+    val stream = new BufferedOutputStream(physical_file)
+    
+    def write(text : String) : Unit = {
+      //val text_ln = text + "\n"
+      stream.write(text.getBytes("UTF-8"))
+    }
+    
+    def close() : Unit = {
+      stream.close()
+    }
+  }
+  
+  val t = new TextFile("test_results.txt")
+
+val p = sc.parallelize(List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
+val nb_p = p.partitions.length
+
+t.write(nb_p.toString)
+
+  t.close()
+
+
+
+  }
+}

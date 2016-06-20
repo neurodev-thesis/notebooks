@@ -1,0 +1,130 @@
+/* ThousandGProcessing.scala */
+import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
+import org.apache.spark.SparkConf
+import org.apache.spark.rdd.RDD
+
+object ThousandGProcessing {
+  def main(args: Array[String]) {
+    val conf = new SparkConf().setAppName("1000G - Processing")
+    val sc = new SparkContext(conf)
+
+   val nb_patients = 100
+  val nb_min_phenotypes = 1
+  val nb_cores = 50
+
+  /* ... new cell ... */
+
+  val sqlContext = new org.apache.spark.sql.SQLContext(sc)
+  sqlContext.sql("SET spark.sql.parquet.binaryAsString=true")
+  import sqlContext.implicits._
+  
+  val pathVariants = "/user/hive/warehouse/1000g.db/exomes_1000g"
+  val parquetFile = sqlContext.read.parquet(pathVariants)
+  parquetFile.registerTempTable("variantData")
+  //no cache because we only use it once so far
+
+  /* ... new cell ... */
+
+  import org.apache.hadoop.fs._
+  import java.io.BufferedOutputStream
+  
+  val fs = FileSystem.get(sc.hadoopConfiguration);
+  val output_path = "hdfs:/user/ndewit/"
+  
+  class TextFile(filename : String) {
+    val physical_file = fs.create(new Path(output_path + filename))
+    val stream = new BufferedOutputStream(physical_file)
+    
+    def write(text : String) : Unit = {
+      stream.write(text.getBytes("UTF-8"))
+    }
+    
+    def close() : Unit = {
+      stream.close()
+    }
+  }
+  
+  val t = new TextFile("1000G_results.txt")
+
+  /* ... new cell ... */
+
+  val patients_id = sqlContext.
+  sql("SELECT DISTINCT patient FROM variantData LIMIT " + nb_patients.toString).
+  map(_.getString(0)).collect
+
+  /* ... new cell ... */
+
+  /*
+  val ASD_genes = sc.textFile(sourceFile).
+  //map{
+  //  line =>
+  //  val split = line.split('\t')
+  //  split(0) //+ possibly keep score too, and filter based on it
+  //}.
+  map(id => s" gene_symbol = '$id' ").
+  reduce(_ + " OR " + _)
+  
+  val DDD_genes = sc.textFile(sourceFile).
+  map(id => s" gene_symbol = '$id' ").
+  reduce(_ + " OR " + _)
+  
+  val ID_genes = sc.textFile(sourceFile).
+  map(id => s" gene_symbol = '$id' ").
+  reduce(_ + " OR " + _)
+  
+  //SCZ?
+  //ID (à completer)
+  //EIEE
+  //BD?
+  
+  val genes_list = ASD_genes + " OR " + DDD_genes + " OR " + ID_genes
+  */
+
+  /* ... new cell ... */
+
+  def make_request(cols : String) : String = {
+    var request = "SELECT " + cols + " "
+    request += "FROM variantData "
+    request += "WHERE ("
+    request += "filters = 'PASS' "
+    request += "AND allele_num <= 2 "
+    request += "AND gene_symbol IS NOT NULL "
+    request += "AND consensus_maf < 0.01 "
+    request += ")"
+    return request
+  }
+  
+  //"group by" in original request?
+  //SQL call 1min20 for 2 patients (done when table appears)
+
+  /* ... new cell ... */
+
+  import org.apache.spark.sql.functions.lit  //lit: Creates a Column of literal value
+  
+  val dataPerPatient = sqlContext.
+  sql(make_request("patient, pos, alternative")).
+  where($"patient".isin(patients_id.map(lit(_)):_*)).
+  //repartition(nb_partitions_vars).
+  //select("patient", "pos", "alternative").
+  map(row => (row.getString(0), (row.getInt(1), row.getString(2)))). //this line is where the processing gets looong
+  //try .rdd.map(x => x(0), (x(1).toInt, x(2)))
+  aggregateByKey(scala.collection.mutable.HashSet.empty[(Int, String)])(_+_, _++_).
+  mapValues(_.toArray)
+                                                                                                      
+  //groupByKey + mapValues SHOULD BE reduceByKey/aggregateByKey
+  
+  //We sort the variants by their position
+  //We can actually not do the sorting here since we'll have to do it again when we add the missing variants
+  
+  
+  val size_genomes = dataPerPatient.mapValues{
+    a => a.size
+  }
+  
+size_genomes.collect.foreach{
+	println("Nb variants of " + e._1 + " : " + e._2.toString)
+}
+
+  }
+}

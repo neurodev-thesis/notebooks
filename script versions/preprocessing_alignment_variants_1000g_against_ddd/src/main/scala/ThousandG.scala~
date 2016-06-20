@@ -1,0 +1,494 @@
+/* SimpleApp.scala */
+import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
+import org.apache.spark.SparkConf
+import org.apache.spark.rdd.RDD
+
+object ThousandG {
+  def main(args: Array[String]) {
+    val conf = new SparkConf().setAppName("1000G - 50").set("spark.ui.port", "4040")
+    val sc = new SparkContext(conf)
+
+ /* You can access these data by creating a sqlContext,
+  that you connect to the set of Parquet files (with the read.parquet method).
+  Then you can issue SQL queries to retrieve the data you want from the DB. */
+  
+  val sqlContext = new org.apache.spark.sql.SQLContext(sc)
+  
+  sqlContext.sql("SET spark.sql.parquet.binaryAsString=true") //Needed to properly handle character strings
+  //Some other Parquet-producing systems, in particular Impala, Hive, and older versions of Spark SQL,
+  //do not differentiate between binary data and strings when writing out the Parquet schema.
+  //This flag tells Spark SQL to interpret binary data as a string to provide compatibility with these systems. 
+  
+  val pathVariants = "/user/hive/warehouse/1000g.db/exomes_1000g" //Change to genomes_1000g for whole genome
+  val parquetFile = sqlContext.read.parquet(pathVariants)
+  parquetFile.registerTempTable("variantData");
+
+  /* ... new cell ... */
+
+  import org.apache.hadoop.fs._
+  import java.io.BufferedOutputStream
+  
+  val fs = FileSystem.get(sc.hadoopConfiguration);
+  val output_path = "hdfs:/user/ndewit/"
+  
+  class TextFile(filename : String) {
+    val physical_file = fs.create(new Path(output_path + filename))
+    val stream = new BufferedOutputStream(physical_file)
+    
+    def write(text : String) : Unit = {
+      stream.write(text.getBytes("UTF-8"))
+    }
+    
+    def close() : Unit = {
+      stream.close()
+    }
+  }
+  
+  val t = new TextFile("1000G_results.txt")
+
+  /* ... new cell ... */
+
+  val nb_patients = 100
+  
+  val patients_id = sqlContext.sql("SELECT DISTINCT patient FROM variantData LIMIT " + nb_patients.toString)
+  patients_id.show()
+
+  /* ... new cell ... */
+
+  //! Not the same as DDD because patients names come from database
+  val where_list = patients_id.map(_.getString(0)).map(id => s" patient = '$id' ").reduce(_ + " OR " + _)
+  
+  def make_request(patient : String) : String = {
+    var request = "SELECT patient, chr, pos, gene_symbol, reference, alternative from variantData WHERE "
+    request += "(" + patient + ")"
+    request += "AND ("
+    request += "filters = 'PASS' "
+    request += "AND allele_num <= 2 "
+    request += "AND gene_symbol IS NOT NULL "
+    request += "AND consensus_maf < 0.01 "
+    request += ")"
+    return request
+  }
+  
+  val all_variants = sqlContext.sql(make_request(where_list))
+  
+  /*
+  def make_request(patient : String) : String = {
+    var request = "SELECT patient, chr, pos, gene_symbol, reference, alternative from variantData WHERE patient = '"
+    request += patient + "' "
+    request += "AND filters = 'PASS' "
+    request += "AND allele_num <= 2 "
+    request += "AND gene_symbol IS NOT NULL "
+    request += "AND consensus_maf < 0.01 "
+    request += "AND chr = 1 AND pos > 43830980 AND pos < 50310485 "
+    request += "LIMIT 5"
+    return request
+  }
+  
+  val patient1 = sqlContext.sql(make_request("HG01816"))
+  val patient2 = sqlContext.sql(make_request("HG01080"))
+  val all_variants = patient1.unionAll(patient2)
+  
+  all_variants.show()
+  */
+
+  /* ... new cell ... */
+
+  val by_patient = all_variants.select("patient", "pos", "alternative"
+                                      ).map(row => (row.getString(0), (row.getInt(1), row.getString(2)))
+                                           ).groupByKey
+  
+  val dataPerPatient : RDD[(String, Array[(Int, String)])] =
+      by_patient.mapValues { it =>
+        it.toArray//.sortBy(_._1)
+      }
+  
+  dataPerPatient.foreach{
+    e =>
+    println("Nb variants of " + e._1 + " : " + e._2.size.toString)
+  }
+  //dataPerPatient.take(2)
+
+  /* ... new cell ... */
+
+  class C_Element(id:Int, name: String, features: Array[(Int, String)]) extends Serializable {
+    val _id = id //to identify it in S //type Index instead?
+    val _name : String = name
+    val _features : Array[(Int, String)] = features
+    
+    def getId() : Int = {
+      val id = _id
+      return id
+    }
+    
+    def getFeatures() : Array[(Int, String)] = {
+      val features = _features
+      return features
+    }
+    
+    def getName() : String = {
+      val name = _name
+      return name
+    }
+    
+    override def toString(): String = {
+      val id = _id
+      val name = _name
+      "Element " + id + " (" + name + ")"
+    }
+    
+  }
+
+  /* ... new cell ... */
+
+  var U = dataPerPatient.zipWithIndex.map{x => new C_Element(x._2.toInt, x._1._1, x._1._2) }.persist
+  
+  val nb_elements = U.count
+  
+  U.foreach(println)
+
+  /* ... new cell ... */
+
+  // CALCULATE DISTANCE
+  
+  import math.{sqrt, pow}
+  
+  def compare_variants(v1: String, v2: String) = {
+    if (v1 == v2) { 0 }
+    else { 1 }
+  }
+  
+  def euclidean_distance(e1: Array[String], e2: Array[String]) = {
+    sqrt((e1 zip e2).map { case (v1, v2) => pow(compare_variants(v1, v2), 2) }.sum)
+  }
+  
+  
+  // Spark doesn't support embedded RDDs
+  // sc is only declared on the driver while RDDs are distributed, so you can't use it to parallelize stuff
+  // Keep features as array... ?
+  def match_features_to_array(e1: Array[(Int, String)], e2: Array[(Int, String)]) : (Array[String], Array[String]) = {
+  
+    val features_1 = e1
+    val features_2 = e2
+    
+    val pos_1 = features_1.map(_._1)
+    val pos_2 = features_2.map(_._1)
+    
+    val in_one_and_not_in_two = pos_1.filter(!pos_2.contains(_)).map( x => (x, "REF") )
+    val in_two_and_not_in_one = pos_2.filter(!pos_1.contains(_)).map( x => (x, "REF") )
+    
+    var complete_1 = features_1.union(in_two_and_not_in_one).sortBy(_._1).map(_._2)
+    var complete_2 = features_2.union(in_one_and_not_in_two).sortBy(_._1).map(_._2)
+    
+    (complete_1, complete_2)
+  }
+  
+  val cart = U.cartesian(U)
+  
+  cart.foreach(println)
+  
+  println("----")
+  
+  val raw_S = cart.map{
+    case (e1, e2) =>
+      if (e1.getId == e2.getId) {
+        (e1.getId) -> (e2.getId, 0.0)
+      }
+      else {
+        //to show alignment: 1) take out .map(_._2) at the end of match...
+        //2) then here val arrays = match_features_to_array(e1._2, e2._2)
+        //then ((e1._1, arrays._1), (e2._1, arrays._2))
+        val arrays = match_features_to_array(e1.getFeatures, e2.getFeatures)
+        (e1.getId) -> (e2.getId, -euclidean_distance(arrays._1, arrays._2))
+      }
+  }
+  
+  raw_S.foreach{
+    duo =>
+    println(duo._1 + "," + duo._2._1 + ": " + duo._2._2)
+  }
+  
+  //=> gives sqrt(8) = 2.82
+
+  /* ... new cell ... */
+
+  // ---- Scaling -----
+  
+  //1) Get the possible Min/Max
+  //See http://stackoverflow.com/questions/26886275/how-to-find-max-value-in-pair-rdd
+  val maxKey2 = raw_S.max()(new Ordering[Tuple2[Int, Tuple2[Int, Double]]]() {
+    override def compare(x: (Int, (Int, Double)), y: (Int, (Int, Double))): Int = 
+        Ordering[Double].compare(x._2._2, y._2._2)
+  })
+  
+  val minKey2 = raw_S.min()(new Ordering[Tuple2[Int, Tuple2[Int, Double]]]() {
+    override def compare(x: (Int, (Int, Double)), y: (Int, (Int, Double))): Int = 
+        Ordering[Double].compare(x._2._2, y._2._2)
+  })
+  
+  println("max:" + maxKey2 + " ; min:" + minKey2)
+  
+  //2) Prepapre scaler to [-1,0]
+  val scaler = maxKey2._2._2 - minKey2._2._2
+  
+  //3) Mapping to scaled results
+  val S = raw_S.mapValues{ case (id, x) => (id, x/scaler + 1.0) }.persist
+  
+  println(S.first)
+
+  /* ... new cell ... */
+
+  /** t : Affinity threshold (value between [0,1]) */
+  val threshold = 0.2
+  
+  /** C : Set containing the already closed clusters */
+  val C = scala.collection.mutable.Set.empty[(Int, Int)] //ID, Cluster
+  var cluster_id = 0
+  
+  // We ground U into a non-RDD mutable Set
+  // Otherwise U would get shipped to executors where changes occur, but these changes never go back to the driver
+  val mut_U = scala.collection.mutable.Set.empty[Int] ++ U.map(e => e.getId).collect()
+
+  /* ... new cell ... */
+
+  def add_affinities(a: scala.collection.mutable.Map[Int, Double], S_row: Map[Int, Double]): Unit = {
+    for (element <- a) {
+      val id : Int = element._1
+      val new_affinity : Double = element._2 + S_row(id)
+      a -= id
+      a += (id -> new_affinity)
+    }
+  }
+  
+  def remove_affinities(a: scala.collection.mutable.Map[Int, Double], S_row: Map[Int, Double]): Unit = {
+    for (element <- a) {
+      val id : Int = element._1
+      val new_affinity : Double = element._2 - S_row(id)
+      a -= id
+      a += (id -> new_affinity)
+    }
+  }
+
+  /* ... new cell ... */
+
+  //! In this process we don't need the features so no need to send the whole thing
+  //U can just be a set of ID
+  
+  // We do the whole thing while there are still elements in U
+  while (!mut_U.isEmpty){
+    
+    val remaining = mut_U.size
+    println(s"$remaining elements remaining in U...")
+    t.write(s"$remaining elements remaining in U...\n")
+    
+    // Open a new current, open cluster of elements
+    var C_open = scala.collection.mutable.Set.empty[Int]
+  
+    // Set all affinities wrt this new cluster to 0
+    var affinities = scala.collection.mutable.Map[Int, Double]() ++ U.map(e => (e.getId, 0.0)).collectAsMap()
+    
+    var change_occurred : Boolean = false
+    
+    
+    do {
+      
+      change_occurred = false
+      
+      
+      // ADD PHASE: Add high affinity elements to the current cluster
+      
+      println("-- ADD --")
+      t.write("-- ADD --\n")
+      
+      var max_element = -1
+      var max_affinity : Double = 0
+      
+      // Avoid exceptions due to a max/reduce/maxBy on an empty collection
+      if (!mut_U.isEmpty) {
+        //We parallelise U to get its maximum in a distributed manner
+        
+        //!!! getAffinity related directly to the a vector instead of the element
+        max_element = sc.parallelize(mut_U.toSeq).max()(new Ordering[Int]() {
+                        override def compare(x: Int, y: Int) : Int = 
+                        Ordering[Double].compare(affinities(x), affinities(y))
+                      })
+        max_affinity = affinities(max_element)
+        println(s"Max of U is $max_element with affinity $max_affinity")
+        t.write(s"Max of U is $max_element with affinity $max_affinity\n")
+      }
+      
+      // While the last selected element is over the threshold
+      while ((!mut_U.isEmpty) && (max_affinity >= threshold*C_open.size)) {
+  
+        println("... and it is over threshold")
+        t.write("... and it is over threshold\n")
+  
+        val to_rem = mut_U.find(x => x == max_element).head
+        C_open += to_rem
+        mut_U -= to_rem
+  
+        //TODO: map to new values, using bcS.value
+        add_affinities(affinities, S.lookup(max_element).toMap[Int,Double])
+        
+        // We find the next maximal element
+        if (!mut_U.isEmpty) {
+          max_element = sc.parallelize(mut_U.toSeq).max()(new Ordering[Int]() {
+                        override def compare(x: Int, y: Int) : Int = 
+                        Ordering[Double].compare(affinities(x), affinities(y))
+                      })
+          max_affinity = affinities(max_element)
+          println(s"New max of U is $max_element with affinity $max_affinity")
+          t.write(s"New max of U is $max_element with affinity $max_affinity\n")
+        }
+  
+        change_occurred = true
+      }
+      
+      
+      //-----------------------------------
+      
+      
+      // REMOVE PHASE : Remove low affinity elements to the current cluster
+      
+      println("-- REMOVE --")
+      t.write("-- REMOVE --\n")
+      
+      var min_element = -1
+      var min_affinity : Double = 0
+      
+      if (!C_open.isEmpty) {
+  
+        min_element = sc.parallelize(C_open.toSeq).min()(new Ordering[Int]() {
+                        override def compare(x: Int, y: Int) : Int = 
+                        Ordering[Double].compare(affinities(x), affinities(y))
+                      })
+        min_affinity = affinities(min_element)
+        
+        println(s"Min of C_open is $min_element with affinity $min_affinity")
+        t.write(s"Min of C_open is $min_element with affinity $min_affinity\n")
+      }
+       
+      while (!C_open.isEmpty && min_affinity < threshold*C_open.size) {
+        
+        println("... and it is under threshold")
+        t.write("... and it is under threshold\n")
+        
+        val to_add = C_open.find(x => x == min_element).head
+        C_open -= to_add
+        mut_U += to_add
+  
+        //TODO
+        remove_affinities(affinities, S.lookup(max_element).toMap[Int,Double])
+  
+        //Find the next minimal element
+        if (!C_open.isEmpty) {
+          min_element = sc.parallelize(C_open.toSeq).min()(new Ordering[Int]() {
+                        override def compare(x: Int, y: Int) : Int = 
+                        Ordering[Double].compare(affinities(x), affinities(y))
+                      })
+          min_affinity = affinities(min_element)
+          println(s"New min of U is $min_element with affinity $min_affinity")
+          t.write(s"New min of U is $min_element with affinity $min_affinity\n")
+        }
+        
+        change_occurred = true
+      }
+      
+      
+    } while(change_occurred)
+    
+    println(s"No changes occurred: this cluster (id $cluster_id) is complete :)\n")
+    t.write(s"No changes occurred: this cluster (id $cluster_id) is complete :)\n\n")
+    
+    C_open.foreach{ e => C += ((e, cluster_id)) }
+    cluster_id = cluster_id + 1
+    
+  }
+
+  /* ... new cell ... */
+
+  val whole_clusters = sc.parallelize(C.toSeq).groupBy(_._2)
+  
+  val nb_clusters = whole_clusters.count()
+  println(s"Total: $nb_clusters clusters")
+  t.write(s"Total: $nb_clusters clusters\n")
+
+  /* ... new cell ... */
+
+  val all_elements = U.collect()
+  
+  C.foreach{ pair =>
+      val c_element = all_elements.find(x => x.getId == pair._1).head
+      println("Cluster " + pair._2 + " => " + c_element) //+ " : " + c_element.getFeatures.mkString(", "))
+      t.write("Cluster " + pair._2 + " => " + c_element) //+ " : " + c_element.getFeatures.mkString(", ") + "\n")
+  }
+
+  /* ... new cell ... */
+
+  val EAS = Array("CHB", "JPT", "CHS", "CDX", "KHV")
+  val EUR = Array("CEU", "TSI", "FIN", "GBR", "IBS")
+  val AFR = Array("YRI", "LWK", "GWD", "MSL", "ESN", "ASW", "ACB")
+  val AMR = Array("MXL", "PUR", "CLM", "PEL")
+  val SAS = Array("GIH", "PJL", "BEB", "STU", "ITU")
+  
+  val base_path = "datasets/1000g/"
+  val pheno_file = base_path + "1000G_patients.txt" // + cache if dataset big
+  val pheno_data = sc.textFile(pheno_file) //data loaded as RDD[String]
+  val phenotypes = pheno_data.map(_.split('\t')).map{
+    x =>
+    var pop = x(6)
+    if (EAS.contains(pop)) { pop = "East Asian (EAS)" }
+    else if (EUR.contains(pop)) { pop = "European (EUR)" }
+    else if (AFR.contains(pop)) { pop = "African (AFR)" }
+    else if (AMR.contains(pop)) { pop = "Ad Mixed American (AMR)" }
+    else if (SAS.contains(pop)) { pop = "South Asian (SAS)" }
+    
+    x(1) -> pop
+  }
+  //Mapping from 26 populations to 5 super populations (see http://www.1000genomes.org/category/population/)
+  
+  phenotypes.take(2)
+
+  /* ... new cell ... */
+
+  val assignedC = sc.parallelize(C.toSeq)
+  val match_names = U.map(e => (e.getId, e.getName))
+  val cluster_by_name = match_names.join(assignedC).values
+  
+  val phenos_by_cluster = cluster_by_name.join(phenotypes).values //or rather left outer join? oula non doesn't do what we want
+  
+  // ! Not the same as DDD since there is only one mapping for this one
+  val counts_by_pheno = phenos_by_cluster.map{e => (e, 1)}.reduceByKey(_ + _).persist
+  
+  val counts_overall = counts_by_pheno.map{
+    case ((cluster, hpo), cnt) =>
+    (hpo, cnt)
+  }.reduceByKey(_ + _)
+  
+  val counts_by_cluster_with_percentages = counts_by_pheno.map{
+    case ((cluster, hpo), cnt) =>
+    (hpo, (cluster, cnt))
+  }.join(counts_overall).map{
+    case (hpo, ((cluster, cnt), tot)) =>
+    (cluster, (hpo, cnt, cnt*100.0/tot))
+  }.groupByKey
+  
+  counts_by_cluster_with_percentages.collect.foreach{
+    case (cluster, hpo_array) =>
+    println("--- Cluster " + cluster.toString + " ---")
+    t.write("--- Cluster " + cluster.toString + " ---\n") //without collect, task not seralizable :(
+    hpo_array.foreach{
+      case (hpo, cnt, perc) =>
+      val formatted_res = "%-40s: %d (%.1f%% of the ppl having this HPO)".format(hpo, cnt, perc)
+      println(formatted_res)
+      t.write(formatted_res + "\n")
+    }
+  }
+
+  /* ... new cell ... */
+
+  t.close()
+
+  }
+}
